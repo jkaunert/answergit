@@ -81,6 +81,9 @@ Navigate to `http://localhost:3000`
 3. **Enter a GitHub repository**
 Enter the username and repository name to start exploring
 
+![image](https://github.com/user-attachments/assets/52b02578-5d88-452a-b722-f7cd867bf9b0)
+
+
 ## 💡 Key Features Usage
 
 ### AI Assistant
@@ -90,10 +93,16 @@ Use the AI assistant to:
 - Get code explanations
 - Generate test suggestions
 
+![image](https://github.com/user-attachments/assets/504ea6dd-5201-4fdb-81f0-fb7e202f7d39)
+
+
 ### File Explorer
 - Navigate through repository files
 - View file contents
 - Get AI-powered insights for specific files
+
+![image](https://github.com/user-attachments/assets/ad45103f-3287-4d7e-ad7e-5aaa0b82cad9)
+
 
 ## 🤝 Contributing
 
