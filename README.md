@@ -29,7 +29,7 @@
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/answergit.git
+git clone https://github.com/TharaneshA/answergit.git
 cd answergit
 ```
 
@@ -113,5 +113,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <div align="center">
-Made with ❤️ by Your Name
+Made with ❤️
 </div>
