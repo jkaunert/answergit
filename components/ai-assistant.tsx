@@ -28,7 +28,6 @@ interface Message {
 
 interface ApiResponse {
   success: boolean
-  summary?: string
   error?: string
   response?: string
 }
@@ -62,7 +61,6 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   ])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isSummaryLoading, setIsSummaryLoading] = useState(false)
   const [currentTypingIndex, setCurrentTypingIndex] = useState<number | null>(null)
   const [displayedContent, setDisplayedContent] = useState<string>('')
   const [isTyping, setIsTyping] = useState(false)
@@ -91,45 +89,6 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
     }
   }, [currentTypingIndex, displayedContent, messages]);
 
-  // Fetch repository summary on initial load
-  useEffect(() => {
-    async function fetchRepoSummary() {
-      try {
-        setIsSummaryLoading(true)
-        // Update the fetchRepoSummary function
-        const response = await Promise.race([
-          fetch('/api/analyze-repo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, repo })
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout fetching repository summary')), 50000))
-        ])
-
-        const data = (await response.json()) as ApiResponse
-        
-        if (data.success) {
-          setMessages(prev => [
-            prev[0],
-            {
-              role: "assistant",
-              content: `Here's a quick summary of this repository:\n\n${data.summary}`
-            }
-          ])
-          // Skip typing animation for initial summary
-          setDisplayedContent(`Here's a quick summary of this repository:\n\n${data.summary}`);
-          setCurrentTypingIndex(null);
-        }
-      } catch (error) {
-        console.error("Error fetching repository summary:", error)
-      } finally {
-        setIsSummaryLoading(false)
-      }
-    }
-
-    fetchRepoSummary()
-  }, [username, repo])
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -149,7 +108,8 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
           username,
           repo,
           query: input,
-          filePath
+          filePath,
+          fetchOnlyCurrentFile: !!filePath
         })
       })
 
@@ -304,7 +264,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
             </div>
           ))}
 
-          {isLoading && !isTyping && (
+          {isLoading && (
             <div className="flex justify-start">
               <div className="max-w-[85%] rounded-lg p-3 bg-zinc-800 text-zinc-200">
                 <div className="flex items-start gap-2">

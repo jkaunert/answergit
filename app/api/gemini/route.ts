@@ -9,30 +9,24 @@ export async function POST(req: Request) {
   try {
     const { username, repo, query, filePath } = await req.json();
 
-    // 1. Fetch repository contents
-    const files = await fetchDirectoryContents(username, repo, '');
+    // 1. Only fetch repository structure if no specific file is requested
+    let context = `Repository: ${username}/${repo}\n\n`;
     
-    // 2. If a specific file is being queried, fetch its content
-    let fileContent = '';
+    // 2. If a specific file is being queried, fetch only its content
     if (filePath) {
-      fileContent = await fetchFileContent(filePath, username, repo);
-    }
-
-    // 3. Fetch content of all files
-    const allFileContents = await Promise.all(
-      files
+      const fileContent = await fetchFileContent(filePath, username, repo);
+      context += `Current file: ${filePath}\n${fileContent}\n\n`;
+    } else {
+      // 3. For general queries, fetch just the file structure (no contents)
+      const files = await fetchDirectoryContents(username, repo, '');
+      const fileList = files
         .filter(file => file.type === 'file')
-        .slice(0, 10) // Limit to first 10 files to avoid rate limits
-        .map(async file => {
-          try {
-            const content = await fetchFileContent(file.path, username, repo);
-            return `File: ${file.path}\n${content}`;
-          } catch (error) {
-            console.error(`Error fetching ${file}:`, error);
-            return '';
-          }
-        })
-    );
+        .slice(0, 10)
+        .map(file => `File: ${file.path}`)
+        .join('\n');
+      
+      context += 'Repository structure:\n\n' + fileList;
+    }
 
     // 4. Prepare context for Gemini
     const context = `Repository: ${username}/${repo}\n\n` +
