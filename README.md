@@ -12,7 +12,6 @@
 
 [Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration)
 
-<img src="public/placeholder-logo.svg" alt="AnswerGit Logo" width="200">
 
 </div>
 
