@@ -1,0 +1,157 @@
+"use client"
+
+import type React from "react"
+
+import { useState } from "react"
+import { useRouter, usePathname } from "next/navigation"
+import { ChevronDown, ChevronRight, FileCode, FileText, Folder, Search, FileJson, Package, User } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
+import Link from "next/link"
+
+interface FileNode {
+  name: string
+  path: string
+  type: "file" | "directory"
+  content?: string
+  children?: FileNode[]
+}
+
+interface FileExplorerProps {
+  repoData: {
+    files: FileNode[]
+  }
+}
+
+export default function FileExplorer({ repoData }: FileExplorerProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const pathParts = pathname.split("/")
+  const username = pathParts[1]
+  const repo = pathParts[2]
+  const [searchQuery, setSearchQuery] = useState("")
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["src", "public"]))
+
+  const toggleFolder = (path: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const newExpanded = new Set(expandedFolders)
+    if (newExpanded.has(path)) {
+      newExpanded.delete(path)
+    } else {
+      newExpanded.add(path)
+    }
+    setExpandedFolders(newExpanded)
+  }
+
+  const findFileNode = (path: string, nodes: FileNode[]): FileNode | null => {
+    for (const node of nodes) {
+      if (node.path === path) return node;
+      if (node.children) {
+        const found = findFileNode(path, node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const handleFileClick = (path: string) => {
+    const fileNode = findFileNode(path, repoData.files);
+    if (fileNode?.content) {
+      router.push(`/${username}/${repo}?file=${encodeURIComponent(path)}`);
+    } else {
+      console.error(`Content not found for file: ${path}`);
+    }
+  }
+
+  const getFileIcon = (fileName: string) => {
+    const extension = fileName.split(".").pop()?.toLowerCase()
+
+    if (fileName === "package.json" || fileName === "package-lock.json") {
+      return <Package className="h-4 w-4 mr-2 text-orange-400" />
+    }
+
+    switch (extension) {
+      case "js":
+      case "jsx":
+      case "ts":
+      case "tsx":
+        return <FileCode className="h-4 w-4 mr-2 text-blue-400" />
+      case "json":
+        return <FileJson className="h-4 w-4 mr-2 text-yellow-400" />
+      case "md":
+        return <FileText className="h-4 w-4 mr-2 text-purple-400" />
+      default:
+        return <FileText className="h-4 w-4 mr-2 text-zinc-400" />
+    }
+  }
+
+  const renderFileTree = (nodes: FileNode[], level = 0) => {
+    return nodes
+      .filter((node) => searchQuery === "" || node.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .map((node) => {
+        const isExpanded = expandedFolders.has(node.path)
+
+        return (
+          <div key={node.path} className="select-none">
+            <div
+              className={cn(
+                "flex items-center py-1.5 px-2 hover:bg-zinc-800/50 rounded cursor-pointer text-sm",
+                level > 0 && "ml-4",
+              )}
+              onClick={(e) => (node.type === "directory" ? toggleFolder(node.path, e) : handleFileClick(node.path))}
+            >
+              {node.type === "directory" ? (
+                <>
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 mr-1 text-zinc-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 mr-1 text-zinc-500" />
+                  )}
+                  <Folder className="h-4 w-4 mr-2 text-blue-400" />
+                </>
+              ) : (
+                <>
+                  <span className="w-4 mr-1" />
+                  {getFileIcon(node.name)}
+                </>
+              )}
+              <span className="truncate font-mono text-xs">{node.name}</span>
+            </div>
+
+            {node.type === "directory" && isExpanded && node.children && (
+              <div>{renderFileTree(node.children, level + 1)}</div>
+            )}
+          </div>
+        )
+      })
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-zinc-900">
+      <div className="p-3 border-b border-zinc-800">
+        <div className="text-lg mb-3 flex items-center gap-1">
+          <Link href={`/${username}`} className="text-emerald-400 hover:text-emerald-300">
+            {username}
+          </Link>
+          <span className="text-zinc-300">/</span>
+          <span className="text-zinc-300">{repo}</span>
+        </div>
+        <div className="relative">
+          <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-zinc-500" />
+          <Input
+            placeholder="Search files..."
+            className="pl-8 h-8 bg-zinc-800 border-zinc-700 text-sm"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <ScrollArea className="flex-1">
+        <div className="p-2">{renderFileTree(repoData.files)}</div>
+      </ScrollArea>
+    </div>
+  )
+}
+
