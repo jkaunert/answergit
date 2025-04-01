@@ -2,13 +2,14 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { ChevronDown, ChevronRight, FileCode, FileText, Folder, Search, FileJson, Package, User } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
+import { Skeleton } from "@/components/ui/skeleton"
 
 interface FileNode {
   name: string
@@ -16,6 +17,7 @@ interface FileNode {
   type: "file" | "directory"
   content?: string
   children?: FileNode[]
+  loaded?: boolean
 }
 
 interface FileExplorerProps {
@@ -55,12 +57,27 @@ export default function FileExplorer({ repoData }: FileExplorerProps) {
     return null;
   };
 
-  const handleFileClick = (path: string) => {
+  const handleFileClick = async (path: string) => {
     const fileNode = findFileNode(path, repoData.files);
-    if (fileNode?.content) {
+    
+    if (!fileNode) {
+      console.error(`File node not found: ${path}`);
+      return;
+    }
+    
+    if (!fileNode.content && !fileNode.loaded) {
+      try {
+        const response = await fetch(`/api/file-content?path=${encodeURIComponent(path)}&username=${username}&repo=${repo}`);
+        const content = await response.json();
+        fileNode.content = content;
+        fileNode.loaded = true;
+      } catch (error) {
+        console.error(`Error loading file content: ${path}`, error);
+      }
+    }
+    
+    if (fileNode.content) {
       router.push(`/${username}/${repo}?file=${encodeURIComponent(path)}`);
-    } else {
-      console.error(`Content not found for file: ${path}`);
     }
   }
 

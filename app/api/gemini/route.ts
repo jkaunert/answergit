@@ -29,10 +29,16 @@ export async function POST(req: Request) {
     }
 
     // 4. Prepare context for Gemini
-    const context = `Repository: ${username}/${repo}\n\n` +
-      (filePath ? `Current file: ${filePath}\n${fileContent}\n\n` : '') +
-      'Repository contents:\n\n' +
-      allFileContents.filter(Boolean).join('\n\n');
+    if (!filePath) {
+      const files = await fetchDirectoryContents(username, repo, '');
+      const fileList = files
+        .filter(file => file.type === 'file')
+        .slice(0, 10)
+        .map(file => `File: ${file.path}`)
+        .join('\n');
+      
+      context += 'Repository structure:\n\n' + fileList;
+    }
 
     // 4. Generate response using Gemini
     const prompt = `You are an AI assistant helping to understand a GitHub repository.\n\nContext:\n${context}\n\nQuestion: ${query}\n\nProvide a detailed, technical response based on the repository context.`;

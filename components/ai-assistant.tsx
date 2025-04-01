@@ -64,6 +64,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   const [currentTypingIndex, setCurrentTypingIndex] = useState<number | null>(null)
   const [displayedContent, setDisplayedContent] = useState<string>('')
   const [isTyping, setIsTyping] = useState(false)
+  const [typingSpeed, setTypingSpeed] = useState(5) // Characters per 5ms
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -79,7 +80,9 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
         setIsTyping(true);
         const timer = setTimeout(() => {
           setDisplayedContent(fullContent.substring(0, displayedContent.length + 1));
-        }, 10);
+          // Scroll to bottom as content grows
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, typingSpeed);
         
         return () => clearTimeout(timer);
       } else {
@@ -87,7 +90,14 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
         setCurrentTypingIndex(null);
       }
     }
-  }, [currentTypingIndex, displayedContent, messages]);
+  }, [currentTypingIndex, displayedContent, messages, typingSpeed]);
+
+  // Reset displayed content when new message arrives
+  useEffect(() => {
+    if (currentTypingIndex !== null && messages[currentTypingIndex]?.role === 'assistant') {
+      setDisplayedContent('');
+    }
+  }, [currentTypingIndex]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
