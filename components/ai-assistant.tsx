@@ -170,7 +170,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
         <ThemeToggle />
       </div>
 
-      <ScrollArea className="flex-1 p-4 overflow-y-auto">
+      <ScrollArea className="flex-1 p-4 overflow-y-auto" style={{ height: '100%' }}>
         <div className="space-y-4">
           {messages.map((message, index) => (
             <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -184,7 +184,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
                   ) : (
                     <User className="h-4 w-4 mt-1 flex-shrink-0" />
                   )}
-                  <div className="text-sm prose prose-invert max-w-none overflow-x-hidden" style={{ padding: '8px', textAlign: 'justify' }}>
+                  <div className="text-sm prose prose-invert max-w-none break-words whitespace-pre-wrap" style={{ padding: '8px' }}>
                     {message.role === "assistant" && currentTypingIndex === index ? (
                       <>
                         <div className="prose prose-invert max-w-[85%] text-justify space-y-2 overflow-x-auto">
@@ -213,7 +213,39 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
                                   </code>
                                 )
                               },
-                              pre({node, children, ...props}: { node?: any; children: React.ReactNode; }) {
+                              img({node, src, alt, ...props}) {
+                                if (!src) return null;
+                                return (
+                                  <div className="my-4 flex justify-center">
+                                    <img
+                                      src={src}
+                                      alt={alt || ''}
+                                      className="max-w-full h-auto rounded-lg shadow-lg"
+                                      style={{ maxHeight: '500px' }}
+                                      {...props}
+                                    />
+                                  </div>
+                                );
+                              },
+                              a({node, href, children, ...props}) {
+                                if (href?.endsWith('.pdf')) {
+                                  return (
+                                    <div className="my-4 flex justify-center">
+                                      <iframe
+                                        src={href}
+                                        className="w-full h-[500px] rounded-lg shadow-lg"
+                                        {...props}
+                                      />
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <a href={href} {...props} target="_blank" rel="noopener noreferrer">
+                                    {children}
+                                  </a>
+                                );
+                              },
+                              pre({node, children, ...props}) {
                                 return (
                                   <div className="overflow-x-auto max-w-full" {...props}>
                                     {children}
@@ -302,7 +334,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
           <QuickPromptButton
             icon={<FileQuestion className="h-3 w-3" />}
             label={filePath ? "Explain this file" : "Explain structure"}
-            onClick={() => handleQuickPrompt(filePath ? `Explain what this file does: ${filePath}` : "Explain the project structure")}
+            onClick={() => handleQuickPrompt(filePath ? `Explain file contents of : ${filePath}` : "Explain the project structure And what it does?")}
           />
           <QuickPromptButton
             icon={<Package className="h-3 w-3" />}
