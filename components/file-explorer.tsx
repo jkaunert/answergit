@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { Skeleton } from "@/components/ui/skeleton"
+import { LoadingAnimation } from "@/components/loading-animation"
 
 interface FileNode {
   name: string
@@ -34,6 +35,14 @@ export default function FileExplorer({ repoData }: FileExplorerProps) {
   const repo = pathParts[2]
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["src", "public"]))
+  // Remove loading state since repoData is passed as a prop and should be available
+  if (!repoData?.files) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <LoadingAnimation />
+      </div>
+    )
+  }
 
   const toggleFolder = (path: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -65,21 +74,14 @@ export default function FileExplorer({ repoData }: FileExplorerProps) {
       return;
     }
     
-    if (!fileNode.content && !fileNode.loaded) {
-      try {
-        const response = await fetch(`/api/file-content?path=${encodeURIComponent(path)}&username=${username}&repo=${repo}`);
-        const content = await response.json();
-        fileNode.content = content;
-        fileNode.loaded = true;
-      } catch (error) {
-        console.error(`Error loading file content: ${path}`, error);
-      }
-    }
-    
-    if (fileNode.content) {
+    // Consistent file content handling for all file types
+    try {
       router.push(`/${username}/${repo}?file=${encodeURIComponent(path)}`);
+    } catch (error) {
+      console.error('Error navigating to file:', error);
     }
   }
+  
 
   const getFileIcon = (fileName: string) => {
     const extension = fileName.split(".").pop()?.toLowerCase()

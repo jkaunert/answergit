@@ -170,14 +170,13 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
         <ThemeToggle />
       </div>
 
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 p-4 overflow-y-auto">
         <div className="space-y-4">
           {messages.map((message, index) => (
             <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] rounded-lg p-3 ${
-                  message.role === "user" ? "bg-emerald-600 text-white" : "bg-zinc-800 text-zinc-200"
-                }`}
+                className={`max-w-[85%] rounded-lg p-3 ${message.role === "user" ? "bg-emerald-600 text-white" : "bg-zinc-800 text-zinc-200"}`}
+                style={{ marginRight: message.role === "assistant" ? "2rem" : "0" }}
               >
                 <div className="flex items-start gap-2">
                   {message.role === "assistant" ? (
@@ -185,7 +184,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
                   ) : (
                     <User className="h-4 w-4 mt-1 flex-shrink-0" />
                   )}
-                  <div className="text-sm prose prose-invert max-w-none" style={{ padding: '8px', textAlign: 'justify' }}>
+                  <div className="text-sm prose prose-invert max-w-none overflow-x-hidden" style={{ padding: '8px', textAlign: 'justify' }}>
                     {message.role === "assistant" && currentTypingIndex === index ? (
                       <>
                         <div className="prose prose-invert max-w-[85%] text-justify space-y-2 overflow-x-auto">

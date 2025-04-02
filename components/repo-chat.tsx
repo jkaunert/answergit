@@ -72,14 +72,14 @@ export default function RepoChat({ username, repo }: RepoChatProps) {
             key={index}
             className={`max-w-3xl ${message.role === "user" ? "ml-auto bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800" : ""}`}
           >
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
                 {message.role === "assistant" ? (
-                  <Bot className="h-5 w-5 mt-1 text-blue-500" />
+                  <Bot className="h-5 w-5 mt-1 text-blue-500 flex-shrink-0" />
                 ) : (
-                  <User className="h-5 w-5 mt-1 text-slate-500" />
+                  <User className="h-5 w-5 mt-1 text-slate-500 flex-shrink-0" />
                 )}
-                <div className="text-sm">{message.content}</div>
+                <div className="text-sm leading-relaxed">{message.content}</div>
               </div>
             </CardContent>
           </Card>
@@ -87,18 +87,18 @@ export default function RepoChat({ username, repo }: RepoChatProps) {
 
         {isLoading && (
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <Bot className="h-5 w-5 mt-1 text-blue-500" />
-                <div className="flex items-center gap-1">
-                  <div className="h-2 w-2 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce"></div>
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <Bot className="h-5 w-5 mt-1 text-blue-500 flex-shrink-0" />
+                <div className="flex items-center gap-2">
+                  <div className="h-2.5 w-2.5 bg-blue-400 dark:bg-blue-500 rounded-full animate-pulse"></div>
                   <div
-                    className="h-2 w-2 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce"
-                    style={{ animationDelay: "0.2s" }}
+                    className="h-2.5 w-2.5 bg-blue-400 dark:bg-blue-500 rounded-full animate-pulse"
+                    style={{ animationDelay: "0.3s" }}
                   ></div>
                   <div
-                    className="h-2 w-2 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce"
-                    style={{ animationDelay: "0.4s" }}
+                    className="h-2.5 w-2.5 bg-blue-400 dark:bg-blue-500 rounded-full animate-pulse"
+                    style={{ animationDelay: "0.6s" }}
                   ></div>
                 </div>
               </div>

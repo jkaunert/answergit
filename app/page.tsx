@@ -1,14 +1,16 @@
-"use client"
+'use client'
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ArrowRight, Github } from "lucide-react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { LoadingAnimation } from "@/components/loading-animation"
 
 export default function Home() {
   const router = useRouter()
   const [repoUrl, setRepoUrl] = useState("")
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const handleAnalyze = () => {
     // Extract username and repo from the URL
@@ -17,6 +19,7 @@ export default function Home() {
 
     if (match) {
       const [, username, repo] = match
+      setIsAnalyzing(true)
       router.push(`/${username}/${repo}`)
     }
   }
@@ -26,27 +29,33 @@ export default function Home() {
       {/* Hero Section */}
       <main className="flex-1 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <div className="max-w-3xl w-full text-center space-y-8">
-          <h1 className="text-5xl font-bold tracking-tight">Understand GitHub repositories with AI</h1>
-          <p className="text-xl text-slate-600 dark:text-slate-300">
-            Replace "github" with "answersforgit" in any repository URL to analyze, understand, and improve any GitHub
-            project with AI-powered insights.
-          </p>
+          {isAnalyzing ? (
+            <LoadingAnimation />
+          ) : (
+            <>
+              <h1 className="text-5xl font-bold tracking-tight">Understand GitHub repositories with AI</h1>
+              <p className="text-xl text-slate-600 dark:text-slate-300">
+                Replace "github" with "answersforgit" in any repository URL to analyze, understand, and improve any GitHub
+                project with AI-powered insights.
+              </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto">
-            <Input 
-              placeholder="github.com/username/repository" 
-              className="flex-1" 
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-            />
-            <Button className="gap-2" onClick={handleAnalyze}>
-              Analyze Repository <ArrowRight size={16} />
-            </Button>
-          </div>
+              <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto">
+                <Input 
+                  placeholder="github.com/username/repository" 
+                  className="flex-1" 
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                />
+                <Button className="gap-2" onClick={handleAnalyze}>
+                  Analyze Repository <ArrowRight size={16} />
+                </Button>
+              </div>
 
-          <div className="pt-4 text-sm text-slate-500 dark:text-slate-400">
-            Example: github.com/JohnDoe/billingproject → answersforgit.com/JohnDoe/billingproject
-          </div>
+              <div className="pt-4 text-sm text-slate-500 dark:text-slate-400">
+                Example: github.com/JohnDoe/billingproject → answersforgit.com/JohnDoe/billingproject
+              </div>
+            </>
+          )}
         </div>
       </main>
 
@@ -106,13 +115,13 @@ export default function Home() {
                   strokeLinejoin="round"
                   className="text-green-600 dark:text-green-400"
                 >
-                  <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path>
-                  <path d="m9 12 2 2 4-4"></path>
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold mb-2">Improvement Suggestions</h3>
+              <h3 className="text-xl font-semibold mb-2">Code Navigation</h3>
               <p className="text-slate-600 dark:text-slate-300">
-                Receive AI-powered recommendations on how to enhance code quality, performance, and security.
+                Easily navigate through the codebase with our interactive file explorer and get instant explanations.
               </p>
             </div>
           </div>

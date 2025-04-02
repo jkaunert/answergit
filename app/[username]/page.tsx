@@ -194,9 +194,7 @@ export default function UserProfilePage() {
                   <CardHeader>
                     <CardTitle className="flex items-start justify-between">
                       <a
-                        href={`/${username}/${repo}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href={`/${username}/${repo.name}`}
                         className="text-emerald-500 hover:text-emerald-400 hover:underline"
                       >
                         {repo.name}
