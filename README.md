@@ -39,6 +39,9 @@ pnpm install
 npm install
 # or
 yarn install
+
+# Alternatively, use Docker:
+docker build -t answergit .
 ```
 
 3. **Set up environment variables**
@@ -73,6 +76,9 @@ pnpm dev
 npm run dev
 # or
 yarn dev
+
+# Alternatively, run with Docker:
+docker run -p 3000:3000 answergit
 ```
 
 2. **Open your browser**
