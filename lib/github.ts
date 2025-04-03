@@ -204,39 +204,32 @@ export async function fetchFileContent(filePath: string, username: string, repo:
       const response = await octokit.repos.getContent({
         owner: username,
         repo,
-        path: filePath,
-        mediaType: {
-          format: 'raw'
-        }
+        path: filePath
       });
 
       const { data } = response;
 
-      // Handle binary files and large files
-      if (Buffer.isBuffer(data)) {
-        throw new Error('Binary files are not supported');
-      }
-
-      // Handle string response (raw file content)
+      // Check if response is HTML (indicating an error)
       if (typeof data === 'string') {
         if (data.startsWith('<!DOCTYPE')) {
           throw new Error('GitHub API authentication failed. Please check your token.');
         }
-        return data;
+        throw new Error('Invalid API response format');
       }
 
-      // Handle object response (with content property)
-      if (typeof data === 'object' && data !== null) {
-        if (Array.isArray(data)) {
-          throw new Error('Requested path is a directory, not a file');
-        }
-
-        if ('content' in data && typeof data.content === 'string') {
-          return Buffer.from(data.content, 'base64').toString('utf-8');
-        }
+      // Check if we got a directory instead of a file
+      if (Array.isArray(data)) {
+        throw new Error('Requested path is a directory, not a file');
       }
 
-      throw new Error('Invalid file data received from GitHub API');
+      // Verify we have a file with content
+      if (data.type !== 'file' || !('content' in data)) {
+        throw new Error('Invalid file data received from GitHub API');
+      }
+
+      // GitHub API returns base64 encoded content
+      const content = Buffer.from(data.content, 'base64').toString('utf-8');
+      return content;
     });
   } catch (error) {
     console.error(`Error fetching file content for ${filePath}:`, error);

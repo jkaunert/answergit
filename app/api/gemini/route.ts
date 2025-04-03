@@ -7,18 +7,17 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 export async function POST(req: Request) {
   try {
-    const { username, repo, query, filePath, fetchOnlyCurrentFile } = await req.json();
+    const { username, repo, query, filePath } = await req.json();
 
+    // 1. Only fetch repository structure if no specific file is requested
     let context = `Repository: ${username}/${repo}\n\n`;
     
-    // Fetch file content if a specific file is requested
+    // 2. If a specific file is being queried, fetch only its content
     if (filePath) {
       const fileContent = await fetchFileContent(filePath, username, repo);
       context += `Current file: ${filePath}\n${fileContent}\n\n`;
-    }
-
-    // Fetch repository structure for general queries or when needed
-    if (!fetchOnlyCurrentFile) {
+    } else {
+      // 3. For general queries, fetch just the file structure (no contents)
       const files = await fetchDirectoryContents(username, repo, '');
       const fileList = files
         .filter(file => file.type === 'file')
@@ -29,7 +28,19 @@ export async function POST(req: Request) {
       context += 'Repository structure:\n\n' + fileList;
     }
 
-    // Generate response using Gemini
+    // 4. Prepare context for Gemini
+    if (!filePath) {
+      const files = await fetchDirectoryContents(username, repo, '');
+      const fileList = files
+        .filter(file => file.type === 'file')
+        .slice(0, 10)
+        .map(file => `File: ${file.path}`)
+        .join('\n');
+      
+      context += 'Repository structure:\n\n' + fileList;
+    }
+
+    // 4. Generate response using Gemini
     const prompt = `You are an AI assistant helping to understand a GitHub repository.\n\nContext:\n${context}\n\nQuestion: ${query}\n\nProvide a detailed, technical response based on the repository context.`;
 
     const result = await model.generateContent({
