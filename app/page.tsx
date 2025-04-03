@@ -62,9 +62,9 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col">
       {/* Hero Section with Immersive Background */}
-      <main className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+      <main className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         {/* Animated background particles */}
         <div className="absolute inset-0 z-0">
           <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-500/20 rounded-full mix-blend-multiply filter blur-xl animate-blob"></div>
@@ -90,13 +90,13 @@ export default function Home() {
                 <div className="flex flex-col items-center">
                   <AnimatedText 
                     text="Understand Github repositories" 
-                    className="text-7xl font-bold tracking-tight text-blue-600 dark:text-blue-500 mb-2" 
+                    className="text-7xl font-bold tracking-tight text-blue-600 dark:text-blue-500 mb-2 font-chunk" 
                     speed={40}
                     showCursor={true}
                   />
                   <AnimatedText 
-                    text="in seconds . . ." 
-                    className="text-7xl font-bold tracking-tight text-blue-600 dark:text-blue-500" 
+                    text="in seconds" 
+                    className="text-7xl font-bold tracking-tight text-blue-600 dark:text-blue-500 font-chunk" 
                     speed={40}
                     delay={1500}
                     showCursor={false}

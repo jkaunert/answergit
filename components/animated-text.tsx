@@ -51,7 +51,7 @@ export function AnimatedText({
   }, [text, speed, delay, onComplete])
 
   return (
-    <div className={cn("w-full whitespace-nowrap overflow-visible", className)}>
+    <div className={cn("w-full whitespace-nowrap overflow-visible font-['Chunk']", className)}>
       {displayText}
       {!isComplete && showCursor && (
         <span className="inline-block w-1 h-8 ml-1 bg-blue-500 animate-pulse" />
