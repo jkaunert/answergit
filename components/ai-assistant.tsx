@@ -161,7 +161,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900 border-l border-zinc-800">
+    <div className="flex flex-col h-full min-h-0 bg-zinc-900 border-l border-zinc-800">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center">
           <Sparkles className="h-4 w-4 mr-2 text-emerald-400" />
@@ -170,7 +170,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
         <ThemeToggle />
       </div>
 
-      <ScrollArea className="flex-1 p-4 overflow-y-auto" style={{ height: '100%' }}>
+      <ScrollArea className="flex-1 min-h-0 p-4 overflow-y-auto">
         <div className="space-y-4">
           {messages.map((message, index) => (
             <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -376,4 +376,3 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
     </div>
   )
 }
-

@@ -47,10 +47,10 @@ export default async function RepoPage({ params }: RepoPageProps) {
           </div>
 
           {/* Main content area - Split between file viewer and AI assistant */}
-          <div className="flex-1 flex flex-col h-[calc(100vh-48px)]">
-            <div className="flex-1 overflow-hidden flex">
+          <div className="flex-1 flex flex-col h-screen">
+            <div className="flex-1 overflow-hidden flex h-full">
               {/* File viewer */}
-              <div className="flex-1 overflow-auto border-r border-zinc-800">
+              <div className="flex-1 overflow-auto border-r border-zinc-800 h-full">
                 <Suspense
                   fallback={
                     <div className="p-4">
@@ -63,7 +63,7 @@ export default async function RepoPage({ params }: RepoPageProps) {
               </div>
 
               {/* AI Assistant */}
-              <div className="w-1/2 flex flex-col">
+              <div className="w-1/2 flex flex-col h-full">
                 <AiAssistant username={username} repo={repo} />
               </div>
             </div>

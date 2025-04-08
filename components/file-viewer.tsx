@@ -105,7 +105,7 @@ export default function FileViewer({ repoData }: FileViewerProps) {
   if (isLoading) {
     return (
       <div className="p-4">
-        <div className="border-b border-zinc-800 p-2 px-4 text-sm font-mono text-zinc-400">{filePath}</div>
+        <div className="border-b bg-black p-2 px-4 text-sm font-mono text-zinc-400 rounded-t-lg">{filePath}</div>
         <div className="p-4">
           <Skeleton className="h-[20px] w-3/4 mb-2 bg-zinc-800" />
           <Skeleton className="h-[20px] w-1/2 mb-2 bg-zinc-800" />
@@ -119,7 +119,7 @@ export default function FileViewer({ repoData }: FileViewerProps) {
   if (error) {
     return (
       <div className="h-full flex flex-col">
-        <div className="border-b border-zinc-800 p-2 px-4 text-sm font-mono text-zinc-400">{filePath}</div>
+        <div className="border-b bg-black p-2 px-4 text-sm font-mono text-zinc-400 rounded-t-lg">{filePath}</div>
         <div className="flex-1 flex items-center justify-center text-red-400">
           <div className="text-center p-4">
             <p>Error loading file: {error}</p>
@@ -132,7 +132,7 @@ export default function FileViewer({ repoData }: FileViewerProps) {
   if (!fileContent) {
     return (
       <div className="p-4">
-        <div className="border-b border-zinc-800 p-2 px-4 text-sm font-mono text-zinc-400">{filePath}</div>
+        <div className="border-b bg-black p-2 px-4 text-sm font-mono text-zinc-400 rounded-t-lg">{filePath}</div>
         <div className="p-4">
           <Skeleton className="h-[20px] w-3/4 mb-2 bg-zinc-800" />
           <Skeleton className="h-[20px] w-1/2 mb-2 bg-zinc-800" />
@@ -144,12 +144,14 @@ export default function FileViewer({ repoData }: FileViewerProps) {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="border-b border-zinc-800 p-2 px-4 text-sm font-mono text-zinc-400">{filePath}</div>
+    <div className="flex flex-col h-full bg-zinc-900">
+      <div className="border-b bg-black p-2 px-4 text-sm font-mono text-zinc-400 rounded-t-lg">{filePath}</div>
       <ScrollArea className="flex-1">
-        <pre className="p-4 text-sm font-mono whitespace-pre-wrap">
-          <code>{fileContent}</code>
-        </pre>
+        <div className="p-4">
+          <pre className="text-sm font-mono whitespace-pre-wrap">
+            <code>{fileContent}</code>
+          </pre>
+        </div>
       </ScrollArea>
     </div>
   )
