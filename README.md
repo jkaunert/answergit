@@ -84,7 +84,7 @@ docker run -p 3000:3000 answergit
 2. **Open your browser**
 Navigate to `http://localhost:3000`
 
-![image](https://github.com/user-attachments/assets/ea1d8b98-b432-4744-b999-1c308d1059dc)
+![image](https://github.com/user-attachments/assets/f61c557f-a48d-4cb7-9a77-24035926b689)
 
 
 3. **Enter a GitHub repository**
