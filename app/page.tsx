@@ -119,7 +119,6 @@ export default function Home() {
                   onPaste={(e) => {
                     e.stopPropagation()
                     const pastedText = e.clipboardData.getData('text')
-                    setRepoUrl(pastedText)
                   }}
                 />
                 <Button 
