@@ -1,5 +1,5 @@
 # Use official Node.js image as base
-FROM node:18-alpine
+FROM node:18-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -8,31 +8,51 @@ WORKDIR /app
 RUN npm install -g pnpm
 
 # Copy package files first to leverage caching
-COPY package*.json ./
+COPY package*.json pnpm-lock.yaml ./
 
 # Install dependencies
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
-# Copy only necessary files
-COPY .dockerignore .
-COPY package*.json .
-COPY next.config.mjs .
-COPY tsconfig.json .
-COPY components.json .
-COPY postcss.config.mjs .
-COPY tailwind.config.ts .
-COPY app ./app
-COPY components ./components
-COPY lib ./lib
-COPY public ./public
-COPY styles ./styles
+# Copy application files
+COPY . .
+
+# Build the application
+RUN pnpm run build
+
+# Production image
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+# Install pnpm globally
+RUN npm install -g pnpm
+
+# Copy necessary files from builder
+COPY --from=builder /app/package*.json /app/pnpm-lock.yaml ./
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/next.config.mjs ./
+
+# Install production dependencies only
+RUN pnpm install --prod --frozen-lockfile
+
+# Set environment variables
+ARG GITHUB_TOKEN
+ARG GEMINI_API_KEY
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG SUPABASE_SERVICE_ROLE_KEY
+ARG NEXT_PUBLIC_APP_URL
+
+ENV GITHUB_TOKEN=$GITHUB_TOKEN
+ENV GEMINI_API_KEY=$GEMINI_API_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NODE_ENV=production
 
 # Expose the port
 EXPOSE 3000
 
-# Set environment variables as build arguments
-ARG GITHUB_TOKEN
-ENV GITHUB_TOKEN=
-
-# Build and start the application with environment variables at runtime
-CMD ["sh", "-c", "pnpm run build && pnpm start"]
+# Start the application
+CMD ["pnpm", "start"]
