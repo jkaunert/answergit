@@ -52,7 +52,7 @@ const QuickPromptButton = ({ icon, label, onClick }: QuickPromptButtonProps) => 
 
 export default function AiAssistant({ username, repo }: AiAssistantProps) {
   const searchParams = useSearchParams()
-  const filePath = searchParams.get("file")
+  const filePath = searchParams?.get("file") || null
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -130,7 +130,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
       }
 
       const newMessageIndex = messages.length
-      setMessages((prev) => [...prev, { role: "assistant", content: data.response }])
+      setMessages((prev) => [...prev, { role: "assistant", content: data.response || "No response received." }])
       setCurrentTypingIndex(newMessageIndex)
       
     } catch (error) {
@@ -190,7 +190,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
                         <div className="prose prose-invert max-w-[85%] text-justify space-y-2 overflow-x-auto">
                           <ReactMarkdown
                             components={{
-                              code({node, inline, className, children, ...props}: { node?: any; inline?: boolean; className?: string; children: React.ReactNode[]; }) {
+                              code({node, inline, className, children, ...props}: { node?: any; inline?: boolean; className?: string; children: React.ReactNode; }) {
                                 const match = /language-(\w+)/.exec(className || '')
                                 return !inline && match ? (
                                   <SyntaxHighlighter
@@ -234,7 +234,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
                                       <iframe
                                         src={href}
                                         className="w-full h-[500px] rounded-lg shadow-lg"
-                                        {...props}
+                                        title="PDF Viewer"
                                       />
                                     </div>
                                   );

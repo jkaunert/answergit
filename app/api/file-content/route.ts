@@ -116,7 +116,17 @@ export async function GET(request: NextRequest) {
       'content' in response.data &&
       typeof response.data.content === 'string'
     ) {
-      content = Buffer.from(response.data.content, "base64").toString();
+      // Check if file is binary (images, PDFs, etc.)
+      const extension = path.split('.').pop()?.toLowerCase() || '';
+      const isBinaryFile = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'ico', 'pdf'].includes(extension);
+      
+      if (isBinaryFile) {
+        // For binary files, keep the base64 encoding
+        content = response.data.content;
+      } else {
+        // For text files, decode from base64
+        content = Buffer.from(response.data.content, "base64").toString();
+      }
     } else {
       return new Response(JSON.stringify({ error: "Invalid response format or path points to a directory" }), {
         status: 400,
