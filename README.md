@@ -84,7 +84,7 @@ docker run -p 3000:3000 answergit
 2. **Open your browser**
 Navigate to `http://localhost:3000`
 
-![image](https://github.com/user-attachments/assets/ea1d8b98-b432-4744-b999-1c308d1059dc)
+![image](https://github.com/user-attachments/assets/c72c0664-569f-4cf7-bae9-17fc70cad677)
 
 
 3. **Enter a GitHub repository**
@@ -102,7 +102,7 @@ Use the AI assistant to:
 - Get code explanations
 - Generate test suggestions
 
-![image](https://github.com/user-attachments/assets/504ea6dd-5201-4fdb-81f0-fb7e202f7d39)
+![image](https://github.com/user-attachments/assets/8c418d0a-6993-4bab-ad5f-4a702e92a783)
 
 
 ### File Explorer
