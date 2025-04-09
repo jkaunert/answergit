@@ -262,11 +262,9 @@ export default function FileViewer({ repoData }: FileViewerProps) {
             {fileContent ? (
               <div className="markdown-content">
                 <ReactMarkdown components={{
-                  div: ({node, className, children, ...props}: { node: any; className?: string; children?: React.ReactNode; align?: string } & React.HTMLAttributes<HTMLDivElement>) => {
-                    // Remove align from props and use it for className
-                    const { align, ...restProps } = props;
+                  div: ({ node, className, children, align, ...props }: React.ClassAttributes<HTMLDivElement> & React.HTMLAttributes<HTMLDivElement> & { node?: any; align?: string }) => {
                     const alignClass = align === "center" ? "text-center" : "";
-                    return <div className={`${className || ""} ${alignClass}`} {...restProps}>{children}</div>;
+                    return <div className={`${className || ""} ${alignClass}`} {...props}>{children}</div>;
                   }
                 }}>{fileContent}</ReactMarkdown>
               </div>

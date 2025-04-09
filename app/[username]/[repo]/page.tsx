@@ -2,6 +2,7 @@ import { Suspense } from "react"
 import FileExplorer from "@/components/file-explorer"
 import AiAssistant from "@/components/ai-assistant"
 import FileViewer from "@/components/file-viewer"
+import RepoAnalyzer from "@/components/repo-analyzer"
 import { fetchRepoData } from "@/lib/github"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Metadata } from "next"
@@ -28,7 +29,11 @@ export default async function RepoPage({ params }: RepoPageProps) {
   const { username, repo } = await params
 
   try {
+    // Fetch repository data first
     const repoData = await fetchRepoData(username, repo)
+    if (!repoData) {
+      throw new Error(`Repository ${username}/${repo} not found or inaccessible`)
+    }
 
     return (
       <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans">
@@ -48,6 +53,7 @@ export default async function RepoPage({ params }: RepoPageProps) {
 
           {/* Main content area - Split between file viewer and AI assistant */}
           <div className="flex-1 flex flex-col h-screen">
+            <RepoAnalyzer username={username} repo={repo} />
             <div className="flex-1 overflow-hidden flex h-full">
               {/* File viewer */}
               <div className="flex-1 overflow-auto border-r border-zinc-800 h-full">

@@ -1,6 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchDirectoryContents, fetchFileContent } from "@/lib/github";
+import { checkDocumentProcessed, combineAndStoreDocument, storeDocumentEmbeddings } from '@/lib/supabase';
+
+const MAX_CHUNK_SIZE = 1000;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -17,17 +20,33 @@ const EXCLUDED_DIRECTORIES = [
   'coverage', '.vscode', '.idea'
 ];
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const { username, repo } = await req.json();
+    const repoId = `${username}/${repo}`;
+
+    // Check if repository has already been processed
+    const isProcessed = await checkDocumentProcessed(repoId);
+    if (isProcessed) {
+      return NextResponse.json({
+        success: true,
+        message: 'Repository has already been analyzed'
+      });
+    }
+
+    console.log(`[${new Date().toISOString()}] Starting analysis of repository: ${repoId}`);
 
     // 1. Fetch repository structure
+    console.log(`[${new Date().toISOString()}] Fetching repository structure...`);
     const files = await fetchDirectoryContents(username, repo, '');
+    console.log(`[${new Date().toISOString()}] Found ${files.length} total files in repository`);
     
     // 2. Filter files to analyze (exclude binary files, assets, etc.)
     const filesToAnalyze = filterRelevantFiles(files);
+    console.log(`[${new Date().toISOString()}] Selected ${filesToAnalyze.length} relevant files for analysis`);
     
     // 3. Fetch content of relevant files
+    console.log(`[${new Date().toISOString()}] Fetching content of relevant files...`);
     const fileContents = await Promise.all(
       filesToAnalyze.slice(0, 20).map(async (file) => { // Limit to 20 most important files
         try {
@@ -68,9 +87,57 @@ export async function POST(req: Request) {
 
     const response = await result.response.text();
 
+    // Process files for RAG
+    console.log(`[${new Date().toISOString()}] Starting vector embedding generation and storage...`);
+    const processedFiles = [];
+    const errors = [];
+
+    for (const file of filesToAnalyze.slice(0, 20)) {
+      try {
+        const content = await fetchFileContent(file.path, username, repo);
+        if (!content) continue;
+
+        // Split content into chunks
+        const chunks = chunkContent(content);
+        const fileChunks = [];
+
+        // Prepare chunks with metadata
+        for (let i = 0; i < chunks.length; i++) {
+          fileChunks.push({
+            content: chunks[i],
+            metadata: {
+              repo,
+              owner: username,
+              filePath: file.path,
+              fileType: file.type
+            }
+          });
+        }
+
+        // Combine and store chunks as a single document
+        const documentId = `${repoId}/${file.path}`;
+        await combineAndStoreDocument(documentId, fileChunks);
+        console.log(`[${new Date().toISOString()}] Stored combined embeddings for ${file.path}`);
+
+        processedFiles.push({
+          path: file.path,
+          chunksProcessed: chunks.length
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`Error processing file ${file.path}:`, errorMessage);
+        errors.push({
+          path: file.path,
+          error: errorMessage
+        });
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      summary: response
+      summary: response,
+      processedFiles,
+      errors: errors.length > 0 ? errors : undefined
     });
   } catch (error) {
     console.error("Error analyzing repository:", error);
@@ -153,4 +220,23 @@ function generateFileTree(files: any[], indent = '') {
   }
   
   return result;
+}
+
+// Helper function to chunk text content
+function chunkContent(content: string, maxChunkSize: number = MAX_CHUNK_SIZE): string[] {
+  const chunks: string[] = [];
+  const sentences = content.split(/(?<=[.!?])\s+/);
+  let currentChunk = '';
+
+  for (const sentence of sentences) {
+    if ((currentChunk + sentence).length <= maxChunkSize) {
+      currentChunk += (currentChunk ? ' ' : '') + sentence;
+    } else {
+      if (currentChunk) chunks.push(currentChunk);
+      currentChunk = sentence;
+    }
+  }
+
+  if (currentChunk) chunks.push(currentChunk);
+  return chunks;
 }

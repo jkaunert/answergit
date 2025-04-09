@@ -111,7 +111,8 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
     setDisplayedContent('')
 
     try {
-      const response = await fetch('/api/gemini', {
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/gemini`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

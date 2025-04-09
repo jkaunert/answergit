@@ -25,6 +25,7 @@ COPY app ./app
 COPY components ./components
 COPY lib ./lib
 COPY public ./public
+COPY styles ./styles
 
 # Expose the port
 EXPOSE 3000
