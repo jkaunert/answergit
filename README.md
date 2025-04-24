@@ -69,8 +69,10 @@ Customize the application by modifying:
 
 <h2>🎬 Watch AnswerGit Demo</h2>
 
-<video width="720" controls>
-  <source src="https://github.com/user-attachments/assets/e975a943-e512-445a-8b40-8061b18a9b16" type="video/mp4">
+https://github.com/user-attachments/assets/e975a943-e512-445a-8b40-8061b18a9b16
+
+<video>
+  <source src='./public/answergit-demo.mp4' type='video/mp4'>
   Your browser does not support the video tag.
 </video>
 
