@@ -24,6 +24,15 @@
 - 🔄 **Real-time Updates**: Instant responses and updates as you explore
 - 📱 **Responsive Design**: Works seamlessly on desktop and mobile devices
 
+<h2>🎬 Watch AnswerGit Demo</h2>
+
+https://github.com/user-attachments/assets/e975a943-e512-445a-8b40-8061b18a9b16
+
+<video>
+  <source src='./public/answergit-demo.mp4' type='video/mp4'>
+  Your browser does not support the video tag.
+</video>
+
 ## 🚀 Installation
 
 1. **Clone the repository**
@@ -67,14 +76,7 @@ Customize the application by modifying:
 - `components.json` for UI component settings
 - `app/globals.css` for global styles
 
-<h2>🎬 Watch AnswerGit Demo</h2>
 
-https://github.com/user-attachments/assets/e975a943-e512-445a-8b40-8061b18a9b16
-
-<video>
-  <source src='./public/answergit-demo.mp4' type='video/mp4'>
-  Your browser does not support the video tag.
-</video>
 
 ## 🚀 Usage
 
