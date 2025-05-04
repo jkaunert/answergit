@@ -6,7 +6,10 @@ if (!process.env.GITHUB_TOKEN) {
 }
 
 const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN
+  auth: process.env.GITHUB_TOKEN,
+  request: {
+    timeout: 60000 // 60 seconds timeout
+  }
 });
 
 // Validate token by making a test API call
@@ -129,7 +132,6 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
   try {
     const cacheKey = `${owner}/${repo}/${path}`;
     
-    // Check cache validity
     const cachedEntry = fileCache.get(cacheKey);
     if (isCacheValid(cachedEntry)) {
       return cachedEntry.data;
@@ -139,7 +141,8 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
       const { data: contents } = await octokit.repos.getContent({
         owner,
         repo,
-        path: path || ''
+        path: path || '',
+        per_page: 100 // Limit items per request
       });
 
       const contentsData = contents as string | { type: string; path: string; sha: string }[];
@@ -152,48 +155,48 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
       }
 
       const nodes: FileNode[] = [];
-      const directoryPromises: Promise<FileNode[]>[] = [];
+      const batchSize = 3; // Reduced batch size for better stability
+      const batches: Array<Array<{ item: any; node: FileNode }>> = [];
+      let currentBatch: Array<{ item: any; node: FileNode }> = [];
 
-      // First pass: create all nodes and batch directory requests
-      const batchSize = 5;
-      const batches: Promise<FileNode[]>[][] = [];
-      let currentBatch: Promise<FileNode[]>[] = [];
-
+      // First pass: create all nodes
       for (const item of contents) {
         const node: FileNode = {
           name: item.name,
           path: item.path,
           type: item.type === 'dir' ? 'directory' : 'file'
         };
+        nodes.push(node);
 
-        if (item.type === 'dir' && depth < 2) { // Limit depth to reduce initial load time
-          const dirPromise = fetchDirectoryContents(owner, repo, item.path, fetchContent, depth + 1);
-          currentBatch.push(dirPromise);
-          
+        if (item.type === 'dir' && depth < 2) {
+          currentBatch.push({ item, node });
           if (currentBatch.length === batchSize) {
             batches.push(currentBatch);
             currentBatch = [];
           }
         }
-
-        nodes.push(node);
       }
 
       if (currentBatch.length > 0) {
         batches.push(currentBatch);
       }
 
-      // Process directory results in batches
-      let dirIndex = 0;
+      // Process batches with delay between each batch
       for (const batch of batches) {
-        const batchResults = await Promise.all(batch);
-        for (const result of batchResults) {
-          while (dirIndex < nodes.length && nodes[dirIndex].type !== 'directory') {
-            dirIndex++;
+        const batchPromises = batch.map(async ({ item, node }) => {
+          try {
+            const children = await fetchDirectoryContents(owner, repo, item.path, fetchContent, depth + 1);
+            node.children = children;
+          } catch (error) {
+            console.error(`Error fetching contents for ${item.path}:`, error);
+            node.children = []; // Set empty children on error
           }
-          if (dirIndex < nodes.length) {
-            nodes[dirIndex++].children = result;
-          }
+        });
+
+        await Promise.all(batchPromises);
+        // Add delay between batches to avoid rate limits
+        if (batches.indexOf(batch) < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
@@ -203,6 +206,9 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
     fileCache.set(cacheKey, { data: promise, timestamp: Date.now() });
     return promise;
   } catch (error) {
+    if (error instanceof Error && error.message.includes('timeout')) {
+      throw new Error(`Request timed out while fetching directory contents. The repository might be too large or the network connection is slow.`);
+    }
     console.error(`Error fetching directory contents for ${path}:`, error);
     throw new Error(`Failed to fetch directory contents: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
