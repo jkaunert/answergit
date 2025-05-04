@@ -40,6 +40,13 @@ interface FileNode {
   children?: FileNode[];
 }
 
+interface GitHubError extends Error {
+  response?: {
+    headers?: { [key: string]: string };
+    data?: any;
+  };
+}
+
 async function retryWithBackoff<T>(operation: () => Promise<T>, retries = MAX_RETRIES): Promise<T> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -96,12 +103,17 @@ export async function fetchRepoData(username: string, repo: string) {
       };
     } catch (error) {
       if (error instanceof Error) {
+        const githubError = error as GitHubError;
         if (error.message.includes('Not Found')) {
           throw new Error(`Repository ${username}/${repo} not found. Please check if the repository exists and is accessible.`);
         } else if (error.message.includes('Bad credentials') || error.message.includes('Unauthorized')) {
           throw new Error('GitHub API authentication failed. Please check your GitHub token.');
         } else if (error.message.includes('rate limit')) {
-          throw new Error('GitHub API rate limit exceeded. Please try again later.');
+          const resetTime = new Date(Number(githubError.response?.headers?.['x-ratelimit-reset'] || 0) * 1000);
+          const waitTime = Math.ceil((resetTime.getTime() - Date.now()) / 1000 / 60);
+          throw new Error(`GitHub API rate limit exceeded. Rate limit will reset in ${waitTime} minutes. Please try again later.`);
+        } else if (error.message.includes('API rate limit exceeded')) {
+          throw new Error('GitHub API rate limit exceeded. Please authenticate or try again later.');
         }
       }
       console.error('Error fetching repo data:', error);
@@ -130,7 +142,8 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
         path: path || ''
       });
 
-      if (typeof contents === 'string' && contents.startsWith('<!DOCTYPE')) {
+      const contentsData = contents as string | { type: string; path: string; sha: string }[];
+      if (typeof contentsData === 'string' && contentsData.startsWith('<!DOCTYPE')) {
         throw new Error('GitHub API returned HTML response. This usually indicates an authentication or rate limit issue.');
       }
 
@@ -211,7 +224,8 @@ export async function fetchFileContent(filePath: string, username: string, repo:
 
       // Check if response is HTML (indicating an error)
       if (typeof data === 'string') {
-        if (data.startsWith('<!DOCTYPE')) {
+        const responseData = data as string;
+        if (responseData && responseData.startsWith('<!DOCTYPE')) {
           throw new Error('GitHub API authentication failed. Please check your token.');
         }
         throw new Error('Invalid API response format');

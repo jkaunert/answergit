@@ -64,7 +64,19 @@ export class RepositoryAnalyzer {
       return await this.processFiles(files);
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Enhance error messages for common GitHub API issues
+      if (error instanceof Error) {
+        if (error.message.includes('Not Found')) {
+          errorMessage = `Repository ${this.repoId} not found. Please check if the repository exists and is accessible.`;
+        } else if (error.message.includes('Bad credentials') || error.message.includes('Unauthorized')) {
+          errorMessage = 'GitHub API authentication failed. Please try again later.';
+        } else if (error.message.includes('rate limit')) {
+          errorMessage = 'GitHub API rate limit exceeded. Please try again later.';
+        }
+      }
+
       logger.error(`Repository analysis failed: ${errorMessage}`, { prefix: 'Analysis' });
       return {
         success: false,
