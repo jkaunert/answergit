@@ -1,5 +1,5 @@
 import { fetchDirectoryContents, fetchFileContent } from './github';
-import { checkDocumentProcessed, combineAndStoreDocument } from './supabase';
+import { checkDocumentProcessed, combineAndStoreDocument, supabaseClient } from './supabase';
 import { logger } from './logger';
 
 interface FileNode {
@@ -47,7 +47,7 @@ export class RepositoryAnalyzer {
       // Check if repository has already been processed
       const isProcessed = await checkDocumentProcessed(this.repoId);
       if (isProcessed) {
-        logger.info('Repository has already been analyzed', { prefix: 'Analysis' });
+        logger.info('Repository has already been analyzed, skipping processing', { prefix: 'Analysis' });
         return {
           success: true,
           processedFiles: [],
@@ -55,15 +55,52 @@ export class RepositoryAnalyzer {
         };
       }
 
+      // Add a processing lock to prevent concurrent analysis
+      const lockKey = `processing_${this.repoId}`;
+      const { data: existingLock } = await supabaseClient
+        .from('processing_locks')
+        .select('created_at')
+        .eq('lock_key', lockKey)
+        .single();
+
+      if (existingLock) {
+        logger.info('Repository is currently being processed by another request', { prefix: 'Analysis' });
+        return {
+          success: false,
+          processedFiles: [],
+          errors: [{ path: this.repoId, error: 'Repository is currently being processed' }]
+        };
+      }
+
+      // Set processing lock
+      await supabaseClient
+        .from('processing_locks')
+        .insert([{ lock_key: lockKey }]);
+
+
       logger.repoAnalysis.start(this.repoId);
 
       // Fetch and filter repository files
       const files = await this.fetchAndFilterFiles();
       
       // Process files and generate embeddings
-      return await this.processFiles(files);
+      const result = await this.processFiles(files);
+
+      // Clean up processing lock
+      await supabaseClient
+        .from('processing_locks')
+        .delete()
+        .eq('lock_key', `processing_${this.repoId}`);
+
+      return result;
 
     } catch (error) {
+      // Clean up processing lock on error
+      await supabaseClient
+        .from('processing_locks')
+        .delete()
+        .eq('lock_key', `processing_${this.repoId}`);
+
       let errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       // Enhance error messages for common GitHub API issues

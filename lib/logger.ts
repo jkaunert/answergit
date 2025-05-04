@@ -119,16 +119,35 @@ class Logger {
     }
   };
 
-  // Search specific logging methods
+  // Search and embedding specific logging methods
   search = {
     start: (query: string) => {
-      this.info(`Starting similarity search for: ${query}`, { prefix: 'Search' });
+      this.info(`Starting vector search for query: ${query}`, { prefix: 'Search' });
     },
     results: (count: number) => {
       this.success(`Found ${count} relevant documents`, { prefix: 'Search' });
     },
+    details: (docs: Array<{ similarity: number; filePath: string }>) => {
+      this.debug('Search results details:', { prefix: 'Search' });
+      docs.forEach(doc => {
+        this.debug(`- ${doc.filePath} (similarity: ${(doc.similarity * 100).toFixed(2)}%)`, { prefix: 'Search' });
+      });
+    },
     error: (error: string) => {
       this.error(`Search error: ${error}`, { prefix: 'Search' });
+    }
+  };
+
+  // Context preparation logging methods
+  context = {
+    start: () => {
+      this.info('Preparing context for Gemini...', { prefix: 'Context' });
+    },
+    stats: (stats: { files: number; totalChars: number }) => {
+      this.info(`Context prepared with ${stats.files} files (${stats.totalChars} characters)`, { prefix: 'Context' });
+    },
+    error: (error: string) => {
+      this.error(`Context preparation error: ${error}`, { prefix: 'Context' });
     }
   };
 }

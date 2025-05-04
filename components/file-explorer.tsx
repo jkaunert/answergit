@@ -29,10 +29,10 @@ interface FileExplorerProps {
 
 export default function FileExplorer({ repoData }: FileExplorerProps) {
   const router = useRouter()
-  const pathname = usePathname()
+  const pathname = usePathname() || "/"
   const pathParts = pathname.split("/")
-  const username = pathParts[1]
-  const repo = pathParts[2]
+  const username = pathParts[1] || ""
+  const repo = pathParts[2] || ""
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["src", "public"]))
   // Remove loading state since repoData is passed as a prop and should be available
@@ -74,11 +74,16 @@ export default function FileExplorer({ repoData }: FileExplorerProps) {
       return;
     }
     
-    // Consistent file content handling for all file types
-    try {
-      router.push(`/${username}/${repo}?file=${encodeURIComponent(path)}`);
-    } catch (error) {
-      console.error('Error navigating to file:', error);
+    // Get current file path from URL
+    const currentPath = new URLSearchParams(window.location.search).get('file');
+    
+    // Only navigate if we're viewing a different file
+    if (currentPath !== path) {
+      try {
+        router.push(`/${username}/${repo}?file=${encodeURIComponent(path)}`);
+      } catch (error) {
+        console.error('Error navigating to file:', error);
+      }
     }
   }
   

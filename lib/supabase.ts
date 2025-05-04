@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { GeminiEmbeddings } from './gemini-embeddings'
+import { logger } from './logger'
 
 // Initialize Supabase client with environment variables
 export const supabaseClient = createClient(
@@ -48,6 +49,18 @@ export async function checkDocumentProcessed(repoId: string) {
 // Function to store document embeddings
 export async function storeDocumentEmbeddings(documentId: string, content: string, metadata: any, isMainDocument = false) {
   try {
+    // Check if document already exists
+    const { data: existingDoc } = await supabaseClient
+      .from('document_embeddings')
+      .select('document_id')
+      .eq('document_id', documentId)
+      .single();
+
+    if (existingDoc) {
+      logger.info(`Document ${documentId} already exists, skipping embedding generation`, { prefix: 'Embeddings' });
+      return existingDoc;
+    }
+
     const embedding = await embeddings.embedQuery(content)
     
     // Format embedding array for Supabase vector storage
@@ -64,8 +77,16 @@ export async function storeDocumentEmbeddings(documentId: string, content: strin
           is_processed: isMainDocument
         }
       ])
+      .select()
+      .single()
 
-    if (error) throw error
+    if (error) {
+      if (error.code === '23505') { // Unique violation
+        logger.info(`Document ${documentId} was inserted by another process, skipping`, { prefix: 'Embeddings' });
+        return null;
+      }
+      throw error;
+    }
     return data
   } catch (error) {
     console.error('Error storing document embeddings:', error)
