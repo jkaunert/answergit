@@ -1,25 +1,65 @@
 import { Octokit } from '@octokit/rest';
 
-// Validate GitHub token before creating Octokit instance
-if (!process.env.GITHUB_TOKEN) {
-  throw new Error('GitHub token is not configured. Please set GITHUB_TOKEN in your environment variables.');
+// Initialize Octokit with token validation and refresh logic
+let octokit: Octokit;
+
+// Initialize and validate GitHub token
+async function initializeGitHubClient() {
+  if (!process.env.GITHUB_TOKEN) {
+    throw new Error('GitHub token is not configured. Please set GITHUB_TOKEN in your environment variables.');
+  }
+
+  try {
+    octokit = new Octokit({
+      auth: process.env.GITHUB_TOKEN,
+      request: {
+        timeout: 60000, // 60 seconds timeout
+        retries: 3, // Add retries for transient failures
+        headers: {
+          accept: 'application/vnd.github.v3+json',
+          'user-agent': 'answergit-app'
+        }
+      }
+    });
+
+    await validateGitHubToken();
+  } catch (error) {
+    // Clear token on initialization failure
+    process.env.GITHUB_TOKEN = undefined;
+    throw error;
+  }
 }
 
-const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN,
-  request: {
-    timeout: 60000 // 60 seconds timeout
-  }
-});
-
-// Validate token by making a test API call
+// Validate token by making a test API call with enhanced error handling
 async function validateGitHubToken() {
   try {
-    await octokit.users.getAuthenticated();
+    const { data } = await octokit.users.getAuthenticated();
+    console.log('GitHub token validated successfully for user:', data.login);
+    return true;
   } catch (error) {
-    throw new Error('Invalid GitHub token. Please check your token and ensure it has the necessary permissions.');
+    if (error instanceof Error) {
+      if (error.message.includes('Bad credentials') || error.message.includes('Unauthorized')) {
+        // Clear the token and force reinitialization
+        process.env.GITHUB_TOKEN = undefined;
+        throw new Error('GitHub token is invalid or expired. Please check your token and ensure it has the necessary permissions.');
+      } else if (error.message.includes('rate limit')) {
+        const githubError = error as GitHubError;
+        const resetTime = new Date(Number(githubError.response?.headers?.['x-ratelimit-reset'] || 0) * 1000);
+        const waitTime = Math.ceil((resetTime.getTime() - Date.now()) / 1000 / 60);
+        throw new Error(`GitHub API rate limit exceeded. Rate limit will reset in ${waitTime} minutes. Please try again later.`);
+      } else if (error.message.includes('403')) {
+        // Handle specific 403 errors
+        throw new Error('Access forbidden. Please ensure your GitHub token has the necessary scopes and permissions.');
+      }
+    }
+    throw new Error('Failed to validate GitHub token: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
+
+// Initialize GitHub client
+initializeGitHubClient().catch(error => {
+  console.error('Failed to initialize GitHub client:', error);
+});
 
 // Cache configuration
 const CACHE_EXPIRATION_MS = 5 * 60 * 1000; // 5 minutes
@@ -71,61 +111,71 @@ function isCacheValid<T>(entry?: CacheEntry<T>): entry is CacheEntry<T> {
 }
 
 export async function fetchRepoData(username: string, repo: string) {
-  // Ensure token is valid before making any requests
-  await validateGitHubToken();
-  
-  const cacheKey = `${username}/${repo}`;
-  
-  // Check cache validity
-  const cachedEntry = repoCache.get(cacheKey);
-  if (isCacheValid(cachedEntry)) {
-    return cachedEntry.data;
-  }
-  
-  const promise = retryWithBackoff(async () => {
-    try {
-      // Fetch repository metadata
-      const response = await octokit.repos.get({
-        owner: username,
-        repo: repo
-      });
-      
-      const repoData = response.data;
-
-      // Fetch repository contents
-      const files = await fetchDirectoryContents(username, repo, '');
-
-      return {
-        name: repoData.name,
-        owner: repoData.owner.login,
-        description: repoData.description,
-        stars: repoData.stargazers_count,
-        forks: repoData.forks_count,
-        language: repoData.language,
-        files
-      };
-    } catch (error) {
-      if (error instanceof Error) {
-        const githubError = error as GitHubError;
-        if (error.message.includes('Not Found')) {
-          throw new Error(`Repository ${username}/${repo} not found. Please check if the repository exists and is accessible.`);
-        } else if (error.message.includes('Bad credentials') || error.message.includes('Unauthorized')) {
-          throw new Error('GitHub API authentication failed. Please check your GitHub token.');
-        } else if (error.message.includes('rate limit')) {
-          const resetTime = new Date(Number(githubError.response?.headers?.['x-ratelimit-reset'] || 0) * 1000);
-          const waitTime = Math.ceil((resetTime.getTime() - Date.now()) / 1000 / 60);
-          throw new Error(`GitHub API rate limit exceeded. Rate limit will reset in ${waitTime} minutes. Please try again later.`);
-        } else if (error.message.includes('API rate limit exceeded')) {
-          throw new Error('GitHub API rate limit exceeded. Please authenticate or try again later.');
-        }
-      }
-      console.error('Error fetching repo data:', error);
-      throw new Error(`Failed to fetch repository data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  try {
+    // Ensure GitHub client is initialized and token is valid
+    await initializeGitHubClient();
+    
+    const cacheKey = `${username}/${repo}`;
+    
+    // Check cache validity
+    const cachedEntry = repoCache.get(cacheKey);
+    if (isCacheValid(cachedEntry)) {
+      return cachedEntry.data;
     }
-  });
-  
-  repoCache.set(cacheKey, { data: promise, timestamp: Date.now() });
-  return promise;
+    
+    const promise = retryWithBackoff(async () => {
+      try {
+        // Fetch repository metadata
+        const response = await octokit.repos.get({
+          owner: username,
+          repo: repo
+        });
+        
+        const repoData = response.data;
+
+        // Fetch repository contents
+        const files = await fetchDirectoryContents(username, repo, '');
+
+        return {
+          name: repoData.name,
+          owner: repoData.owner.login,
+          description: repoData.description,
+          stars: repoData.stargazers_count,
+          forks: repoData.forks_count,
+          language: repoData.language,
+          files
+        };
+      } catch (error) {
+        if (error instanceof Error) {
+          const githubError = error as GitHubError;
+          if (error.message.includes('Not Found')) {
+            throw new Error(`Repository ${username}/${repo} not found. Please check if the repository exists and is accessible.`);
+          } else if (error.message.includes('Bad credentials') || error.message.includes('Unauthorized')) {
+            // Try to reinitialize GitHub client on authentication failure
+            await initializeGitHubClient();
+            throw new Error('GitHub token has expired or is invalid. Please check your token and try again.');
+          } else if (error.message.includes('rate limit')) {
+            const resetTime = new Date(Number(githubError.response?.headers?.['x-ratelimit-reset'] || 0) * 1000);
+            const waitTime = Math.ceil((resetTime.getTime() - Date.now()) / 1000 / 60);
+            throw new Error(`GitHub API rate limit exceeded. Rate limit will reset in ${waitTime} minutes. Please try again later.`);
+          } else if (error.message.includes('API rate limit exceeded')) {
+            throw new Error('GitHub API rate limit exceeded. Please authenticate or try again later.');
+          }
+        }
+        console.error('Error fetching repo data:', error);
+        throw new Error(`Failed to fetch repository data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    });
+    
+    repoCache.set(cacheKey, { data: promise, timestamp: Date.now() });
+    return promise;
+  } catch (error) {
+    // Handle initialization errors
+    if (error instanceof Error && error.message.includes('GitHub token')) {
+      throw new Error('GitHub authentication failed. Please ensure your token is valid and has the necessary permissions.');
+    }
+    throw error;
+  }
 }
 
 export async function fetchDirectoryContents(owner: string, repo: string, path: string, fetchContent = false, depth = 0): Promise<FileNode[]> {
