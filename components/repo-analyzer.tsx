@@ -22,6 +22,8 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
         setError(null)
         
         const baseUrl = window.location.origin
+        
+        // First, trigger the main repository analysis
         const analyzeResponse = await fetch(`${baseUrl}/api/analyze-repo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -40,6 +42,21 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
             console.log('Repository was already analyzed')
           } else {
             console.log('Repository analysis completed successfully')
+          }
+          
+          // Then, trigger background processing for embeddings
+          try {
+            console.log('Starting background processing of repository files...')
+            fetch(`${baseUrl}/api/collect-repo-data`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username, repo })
+            }).catch(error => {
+              console.error('Error in background processing:', error)
+            })
+          } catch (error) {
+            // Don't fail the main analysis if background processing fails
+            console.error('Error triggering background processing:', error)
           }
         }
       } catch (error) {

@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchFileContent, fetchDirectoryContents } from "@/lib/github";
+import { searchSimilarDocuments } from "@/lib/supabase";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 export async function POST(req: Request) {
   try {
-    const { username, repo, query, filePath } = await req.json();
+    const { username, repo, query, filePath, fetchOnlyCurrentFile = false } = await req.json();
     const repoKey = `${username}/${repo}`;
 
     let context = `Repository: ${repoKey}\n\n`;
     
-    if (filePath) {
+    if (filePath && fetchOnlyCurrentFile) {
       // For specific file queries, fetch only that file's content
       const fileContent = await fetchFileContent(filePath, username, repo);
       context += `Current file: ${filePath}\n${fileContent}\n\n`;
@@ -21,43 +22,69 @@ export async function POST(req: Request) {
       console.log(`[${new Date().toISOString()}] Collecting repository data for ${repoKey}...`);
       
       try {
-        // Trigger immediate background content loading
-        fetch('/api/analyze-repo/context', {
+        // First, try to find relevant documents using vector search
+        let relevantDocuments = [];
+        if (query) {
+          console.log(`[${new Date().toISOString()}] Searching for relevant documents for query: ${query}`);
+          relevantDocuments = await searchSimilarDocuments(query, 0.6, 5);
+        }
+        
+        // If we found relevant documents, use them for context
+        if (relevantDocuments && relevantDocuments.length > 0) {
+          console.log(`[${new Date().toISOString()}] Found ${relevantDocuments.length} relevant documents`);
+          
+          // Add relevant documents to context
+          context += 'Relevant repository files:\n\n';
+          for (const doc of relevantDocuments) {
+            const filePath = doc.metadata?.filePath || 'Unknown file';
+            context += `File: ${filePath}\n${doc.content}\n\n`;
+          }
+        }
+        
+        // Trigger background content loading to ensure repository is processed
+        fetch('/api/collect-repo-data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, repo })
         }).catch(error => console.error('Background content loading error:', error));
 
-        // Get repository structure
-        const files = await fetchDirectoryContents(username, repo, '');
-        const fileList = files
-          .filter(file => file.type === 'file')
-          .slice(0, 10)
-          .map(file => `File: ${file.path}`)
-          .join('\n');
-        
-        context += 'Repository structure:\n\n' + fileList;
+        // If we didn't find relevant documents or if it's a file-specific query, get repository structure
+        if (relevantDocuments.length === 0 || filePath) {
+          // Get repository structure
+          const files = await fetchDirectoryContents(username, repo, '');
+          const fileList = files
+            .filter(file => file.type === 'file')
+            .slice(0, 10)
+            .map(file => `File: ${file.path}`)
+            .join('\n');
+          
+          context += 'Repository structure:\n\n' + fileList;
 
-        // Try to get any already processed content
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/analyze-repo/context`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, repo })
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to collect repository data: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        if (data.success && data.context && data.context.files.length > 0) {
-          // Add any available processed content
-          context += '\n\nRepository contents:\n\n';
-          data.context.files.forEach(({ path, content }: { path: string; content: string }) => {
-            if (content) {
-              context += `File: ${path}\n${content}\n\n`;
-            }
+          // Try to get additional context from the context API
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/analyze-repo/context`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, repo, query })
           });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.context && data.context.files.length > 0) {
+              // Add any available processed content
+              context += '\n\nAdditional repository contents:\n\n';
+              data.context.files.forEach(({ path, content }: { path: string; content: string }) => {
+                if (content) {
+                  context += `File: ${path}\n${content}\n\n`;
+                }
+              });
+            }
+          }
+        }
+        
+        // If this is a file-specific query but we want repository context, add the file content
+        if (filePath && !fetchOnlyCurrentFile) {
+          const fileContent = await fetchFileContent(filePath, username, repo);
+          context += `\nCurrent file: ${filePath}\n${fileContent}\n\n`;
         }
       } catch (error) {
         console.error('Error collecting repository data:', error);
