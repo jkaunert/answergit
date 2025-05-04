@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { logger } from './logger';
 
 export class GeminiEmbeddings {
   private model: any;
@@ -9,6 +10,7 @@ export class GeminiEmbeddings {
   }
 
   async embedQuery(text: string): Promise<number[]> {
+    logger.embeddings.generating(text);
     try {
       // Split text into chunks if it's too large (max 36000 bytes)
       const textBytes = new TextEncoder().encode(text).length;
@@ -48,7 +50,7 @@ export class GeminiEmbeddings {
 
       // Get embeddings for each chunk
       const chunkEmbeddings = await Promise.all(
-        chunks.map(chunk => this.model.embedContent(chunk).then((r) => {
+        chunks.map(chunk => this.model.embedContent(chunk).then((r: { embedding: { values: number[] } }) => {
           const embeddingData = r?.embedding;
           if (!embeddingData || typeof embeddingData.values === 'undefined') {
             throw new Error('Invalid chunk embedding response structure');
@@ -73,7 +75,7 @@ export class GeminiEmbeddings {
 
       return averageEmbedding;
     } catch (error) {
-      console.error('Error generating embedding:', error);
+      logger.embeddings.error(error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }
@@ -85,7 +87,7 @@ export class GeminiEmbeddings {
       );
       return embeddings;
     } catch (error) {
-      console.error('Error generating embeddings:', error);
+      logger.embeddings.error(error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }

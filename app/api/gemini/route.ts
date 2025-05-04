@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchFileContent, fetchDirectoryContents } from "@/lib/github";
 import { searchSimilarDocuments } from "@/lib/supabase";
+import { logger } from '@/lib/logger';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -19,19 +20,19 @@ export async function POST(req: Request) {
       context += `Current file: ${filePath}\n${fileContent}\n\n`;
     } else {
       // For general queries, collect comprehensive repository data
-      console.log(`[${new Date().toISOString()}] Collecting repository data for ${repoKey}...`);
+      logger.info(`Collecting repository data for ${repoKey}...`, { prefix: 'Query' });
       
       try {
         // First, try to find relevant documents using vector search
         let relevantDocuments = [];
         if (query) {
-          console.log(`[${new Date().toISOString()}] Searching for relevant documents for query: ${query}`);
-          relevantDocuments = await searchSimilarDocuments(query, 0.6, 5);
+          logger.search.start(query);
+          relevantDocuments = await searchSimilarDocuments(query, 0.7, 8); // Increased similarity threshold and number of results
         }
         
         // If we found relevant documents, use them for context
         if (relevantDocuments && relevantDocuments.length > 0) {
-          console.log(`[${new Date().toISOString()}] Found ${relevantDocuments.length} relevant documents`);
+          logger.search.results(relevantDocuments.length);
           
           // Add relevant documents to context
           context += 'Relevant repository files:\n\n';
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
           context += `\nCurrent file: ${filePath}\n${fileContent}\n\n`;
         }
       } catch (error) {
-        console.error('Error collecting repository data:', error);
+        logger.search.error(error instanceof Error ? error.message : 'Unknown error');
       }
     }
 
@@ -109,7 +110,7 @@ export async function POST(req: Request) {
       response
     });
   } catch (error) {
-    console.error("Error processing Gemini request:", error);
+    logger.error("Error processing Gemini request: " + (error instanceof Error ? error.message : 'Unknown error'));
     return NextResponse.json(
       {
         success: false,

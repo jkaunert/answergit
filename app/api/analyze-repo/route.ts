@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchDirectoryContents, fetchFileContent } from "@/lib/github";
 import { checkDocumentProcessed, combineAndStoreDocument, storeDocumentEmbeddings } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 
 const MAX_CHUNK_SIZE = 1000;
 
@@ -34,26 +35,26 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    console.log(`[${new Date().toISOString()}] Starting analysis of repository: ${repoId}`);
+    logger.repoAnalysis.start(repoId);
 
     // 1. Fetch repository structure
-    console.log(`[${new Date().toISOString()}] Fetching repository structure...`);
+    logger.info('Fetching repository structure...', { prefix: 'Analysis' });
     const files = await fetchDirectoryContents(username, repo, '');
-    console.log(`[${new Date().toISOString()}] Found ${files.length} total files in repository`);
+    logger.repoAnalysis.fileDiscovered(files.length);
     
     // 2. Filter files to analyze (exclude binary files, assets, etc.)
     const filesToAnalyze = filterRelevantFiles(files);
-    console.log(`[${new Date().toISOString()}] Selected ${filesToAnalyze.length} relevant files for analysis`);
+    logger.repoAnalysis.relevantFiles(filesToAnalyze.length);
     
     // 3. Fetch content of relevant files
-    console.log(`[${new Date().toISOString()}] Fetching content of relevant files...`);
+    logger.info('Fetching content of relevant files...', { prefix: 'Analysis' });
     const fileContents = await Promise.all(
       filesToAnalyze.slice(0, 20).map(async (file) => { // Limit to 20 most important files
         try {
           const content = await fetchFileContent(file.path, username, repo);
           return `File: ${file.path}\n${content}`;
         } catch (error) {
-          console.error(`Error fetching ${file.path}:`, error);
+          logger.repoAnalysis.error(file.path, error instanceof Error ? error.message : 'Unknown error');
           return '';
         }
       })
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
     const response = await result.response.text();
 
     // Process files for RAG
-    console.log(`[${new Date().toISOString()}] Starting vector embedding generation and storage...`);
+    logger.info('Starting vector embedding generation and storage...', { prefix: 'Embeddings' });
     const processedFiles = [];
     const errors = [];
 
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
         // Combine and store chunks as a single document
         const documentId = `${repoId}/${file.path}`;
         await combineAndStoreDocument(documentId, fileChunks);
-        console.log(`[${new Date().toISOString()}] Stored combined embeddings for ${file.path}`);
+        logger.embeddings.stored(documentId);
 
         processedFiles.push({
           path: file.path,
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`Error processing file ${file.path}:`, errorMessage);
+        logger.repoAnalysis.error(file.path, errorMessage);
         errors.push({
           path: file.path,
           error: errorMessage
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
       errors: errors.length > 0 ? errors : undefined
     });
   } catch (error) {
-    console.error("Error analyzing repository:", error);
+    logger.error("Error analyzing repository: " + (error instanceof Error ? error.message : 'Unknown error'));
     return NextResponse.json(
       {
         success: false,
