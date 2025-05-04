@@ -2,6 +2,7 @@ import { Octokit } from '@octokit/rest';
 
 // Initialize Octokit with token validation and refresh logic
 let octokit: Octokit;
+let isTokenValidated = false;
 
 // Initialize and validate GitHub token
 async function initializeGitHubClient() {
@@ -10,22 +11,49 @@ async function initializeGitHubClient() {
   }
 
   try {
+    // Validate token format before initializing
+    const token = process.env.GITHUB_TOKEN.trim();
+    if (!token.match(/^gh[ps]_[a-zA-Z0-9]{36,40}$/)) {
+      throw new Error('Invalid GitHub token format. Please ensure you are using a valid GitHub token.');
+    }
+
     octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
+      auth: token,
       request: {
         timeout: 60000, // 60 seconds timeout
         retries: 3, // Add retries for transient failures
         headers: {
           accept: 'application/vnd.github.v3+json',
           'user-agent': 'answergit-app'
+          // Remove explicit authorization header as Octokit handles this internally
         }
       }
     });
 
-    await validateGitHubToken();
+    // Validate token only if not already validated
+    if (!isTokenValidated) {
+      let retryCount = 0;
+      const maxRetries = 3;
+      while (retryCount < maxRetries) {
+        try {
+          await validateGitHubToken();
+          isTokenValidated = true;
+          break;
+        } catch (validationError) {
+          if (retryCount === maxRetries - 1) {
+            throw validationError;
+          }
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        }
+      }
+    }
   } catch (error) {
     // Clear token on initialization failure
     process.env.GITHUB_TOKEN = undefined;
+    if (error instanceof Error) {
+      throw new Error(`GitHub client initialization failed: ${error.message}`);
+    }
     throw error;
   }
 }
@@ -266,8 +294,8 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
 
 export async function fetchFileContent(filePath: string, username: string, repo: string) {
   try {
-    // Ensure token is valid before making any requests
-    await validateGitHubToken();
+    // Ensure GitHub client is initialized
+    await initializeGitHubClient();
     
     return await retryWithBackoff(async () => {
       const response = await octokit.repos.getContent({

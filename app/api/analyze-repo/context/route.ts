@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     
     // If a specific query is provided, use vector search to find relevant documents
     if (query) {
-      const documents = await searchSimilarDocuments(query, 0.6, MAX_FILES_IN_CONTEXT);
+      const documents = await searchSimilarDocuments(query, MAX_FILES_IN_CONTEXT, { username, repo });
       
       if (documents && documents.length > 0) {
         // Extract file paths and contents from the matched documents

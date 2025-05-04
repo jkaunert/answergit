@@ -102,6 +102,19 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
     e.preventDefault()
     if (!input.trim() || isLoading) return
 
+    await sendMessage()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (!input.trim() || isLoading) return
+      sendMessage()
+    }
+  }
+
+  const sendMessage = async () => {
+
     const userMessage = { role: "user" as const, content: input }
     setMessages((prev) => [...prev, userMessage])
     setInput("")
@@ -291,6 +304,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
             placeholder="Ask about this repository..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
             className="flex-1 resize-none bg-zinc-800 border-zinc-700 focus-visible:ring-emerald-500 text-sm"
             rows={2}
             disabled={isLoading}

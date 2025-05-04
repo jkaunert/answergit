@@ -20,7 +20,9 @@ create index on document_embeddings using ivfflat (embedding vector_cosine_ops)
 create or replace function match_documents (
   query_embedding vector(768),
   match_threshold float,
-  max_matches int
+  max_matches int,
+  username text default null,
+  repo text default null
 )
 returns table (
   id bigint,
@@ -40,7 +42,13 @@ begin
     document_embeddings.metadata,
     1 - (document_embeddings.embedding <=> query_embedding) as similarity
   from document_embeddings
-  where 1 - (document_embeddings.embedding <=> query_embedding) > match_threshold
+  where (
+    username is null or
+    (metadata->>'username')::text = username
+  ) and (
+    repo is null or
+    (metadata->>'repo')::text = repo
+  )
   order by document_embeddings.embedding <=> query_embedding
   limit max_matches;
 end;

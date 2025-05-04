@@ -40,7 +40,8 @@ export async function POST(req: Request) {
             query.toLowerCase().includes('what') || 
             query.toLowerCase().includes('explain') ? 
             0.5 : 0.7;
-          relevantDocuments = await searchSimilarDocuments(query, similarityThreshold, 12);
+          // Only search within the current repository's files
+          relevantDocuments = await searchSimilarDocuments(query, 12, { username, repo });
 
           if (relevantDocuments && relevantDocuments.length > 0) {
             logger.search.results(relevantDocuments.length);

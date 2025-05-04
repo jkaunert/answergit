@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { GeminiEmbeddings } from './gemini-embeddings'
 import { logger } from './logger'
+import { error } from 'console'
 
 // Initialize Supabase client with environment variables
 export const supabaseClient = createClient(
@@ -116,21 +117,15 @@ export async function combineAndStoreDocument(repoId: string, chunks: { content:
 }
 
 // Function to search similar documents
-export async function searchSimilarDocuments(query: string, matchThreshold = 0.7, maxResults = 5) {
+export async function searchSimilarDocuments(query: string, maxResults = 50, repoFilter?: { username: string; repo: string }) {
   try {
-    const queryEmbedding = await embeddings.embedQuery(query)
-    
-    // Format query embedding for Supabase vector matching
-    const formattedQueryEmbedding = `[${queryEmbedding.join(',')}]`
-
-    const { data: documents, error } = await supabaseClient.rpc(
-      'match_documents',
-      {
-        query_embedding: formattedQueryEmbedding,
-        match_threshold: matchThreshold,
-        max_matches: maxResults
-      }
-    )
+    // Get all documents from the repository without similarity matching
+    const { data: documents, error } = await supabaseClient
+      .from('document_embeddings')
+      .select('*')
+      .eq('metadata->owner', repoFilter?.username)
+      .eq('metadata->repo', repoFilter?.repo)
+      .limit(maxResults)
 
     if (error) throw error
     return documents
@@ -139,3 +134,4 @@ export async function searchSimilarDocuments(query: string, matchThreshold = 0.7
     throw error
   }
 }
+
