@@ -21,7 +21,8 @@ async function initializeGitHubClient() {
 
     // Validate token format before initializing
     const token = process.env.GITHUB_TOKEN.trim();
-    if (!token.match(/^gh[ps]_[a-zA-Z0-9]{36,40}$/)) {
+    // Support both classic tokens (ghp_) and fine-grained tokens (github_pat_)
+    if (!token.match(/^(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{80,})$/)) {
       throw new Error('Invalid GitHub token format. Please ensure you are using a valid GitHub token.');
     }
 
@@ -71,6 +72,16 @@ async function initializeGitHubClient() {
 // Validate token by making a test API call with enhanced error handling
 async function validateGitHubToken() {
   try {
+    // First check rate limits before making the validation call
+    const rateLimit = await octokit.rateLimit.get();
+    const remaining = rateLimit.data.rate.remaining;
+    const resetTime = new Date(rateLimit.data.rate.reset * 1000);
+    
+    if (remaining < 1) {
+      const waitTime = Math.ceil((resetTime.getTime() - Date.now()) / 1000 / 60);
+      throw new Error(`GitHub API rate limit exceeded. Rate limit will reset in ${waitTime} minutes. Please try again later.`);
+    }
+
     const { data } = await octokit.users.getAuthenticated();
     console.log('GitHub token validated successfully for user:', data.login);
     return true;
@@ -81,10 +92,7 @@ async function validateGitHubToken() {
         process.env.GITHUB_TOKEN = undefined;
         throw new Error('GitHub token is invalid or expired. Please check your token and ensure it has the necessary permissions.');
       } else if (error.message.includes('rate limit')) {
-        const githubError = error as GitHubError;
-        const resetTime = new Date(Number(githubError.response?.headers?.['x-ratelimit-reset'] || 0) * 1000);
-        const waitTime = Math.ceil((resetTime.getTime() - Date.now()) / 1000 / 60);
-        throw new Error(`GitHub API rate limit exceeded. Rate limit will reset in ${waitTime} minutes. Please try again later.`);
+        throw error; // Re-throw rate limit error as it's already formatted
       } else if (error.message.includes('403')) {
         // Handle specific 403 errors
         throw new Error('Access forbidden. Please ensure your GitHub token has the necessary scopes and permissions.');

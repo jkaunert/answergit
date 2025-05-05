@@ -35,7 +35,7 @@ export class RepositoryAnalyzer {
   constructor(
     private readonly username: string,
     private readonly repo: string,
-    private readonly maxFilesToProcess: number = 20
+    private readonly maxFilesToProcess: number = 50
   ) {}
 
   private get repoId(): string {
