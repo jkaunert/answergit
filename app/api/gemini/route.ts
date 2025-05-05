@@ -1,127 +1,125 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { fetchFileContent, fetchDirectoryContents } from "@/lib/github";
-import { getRepositoryDocuments } from "@/lib/supabase";
+import { fetchFileContent } from "@/lib/github";
 import { logger } from '@/lib/logger';
+import { generatePrompt, getRepoDataForPrompt } from '@/lib/prompt-generator';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-// Define interface for context statistics
+// Define interfaces for data structures
 interface ContextStats {
   files: number;
   totalChars: number;
 }
 
-// Configure rate limiting and batching
-const RATE_LIMIT_DELAY = 100; // ms between requests
-const MAX_CONCURRENT_REQUESTS = 3;
-const BATCH_SIZE = 5;
-const MAX_RETRIES = 3;
+interface GitIngestData {
+  tree: string;
+  content: string;
+  success?: boolean;
+  error?: string;
+}
 
-let timeoutId: string | number | NodeJS.Timeout | undefined; // Declare timeoutId at the beginning of the function
+interface ConversationMessage {
+  role: string;
+  content: string;
+}
+
+let timeoutId: string | number | NodeJS.Timeout | undefined;
 
 export async function POST(req: Request) {
   try {
-    const { username, repo, query, filePath, fetchOnlyCurrentFile = false } = await req.json();
+    const { username, repo, query, filePath, fetchOnlyCurrentFile = false, history = [] } = await req.json();
     const repoKey = `${username}/${repo}`;
     
     // Set a longer timeout for Vercel
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), 50000); // 50 second timeout
 
-    let context = `Repository: ${repoKey}\n\n`;
+    logger.info(`[${new Date().toISOString()}] Starting query processing for repository: ${repoKey}`, { prefix: 'Query' });
+    
+    let prompt: string;
     let contextStats: ContextStats = { files: 0, totalChars: 0 };
+    
+    // Start context preparation
+    logger.context.start();
 
     if (filePath && fetchOnlyCurrentFile) {
       // For specific file queries, fetch only that file's content
       const fileContent = await fetchFileContent(filePath, username, repo);
-      context += `Current file: ${filePath}\n${fileContent}\n\n`;
-    } else {
-      // For general queries, collect comprehensive repository data with rate limiting
-      logger.info(`Collecting repository data for ${repoKey}...`, { prefix: 'Query' });
+      prompt = `You are a helpful assistant that can answer questions about the given code file.
 
+FILE: ${filePath}
+
+${fileContent}
+
+QUESTION: ${query}
+
+Provide a detailed, technical response that directly addresses the question about this specific file.`;
+      
+      contextStats.files = 1;
+      contextStats.totalChars = fileContent.length;
+    } else {
+      // For general queries, use GitIngest data
+      logger.info(`Collecting repository data for ${repoKey} using GitIngest...`, { prefix: 'Query' });
+      
       try {
-        // Fetch documents with retries and rate limiting
-        let documents = null;
-        for (let retry = 0; retry < MAX_RETRIES; retry++) {
-          try {
-            documents = await getRepositoryDocuments(30, { username, repo });
-            break;
-          } catch (error) {
-            if (retry === MAX_RETRIES - 1) throw error;
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retry) * 1000));
-          }
+        // Trigger background content loading if needed
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/collect-repo-data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, repo })
+          });
+        } catch (error) {
+          logger.error('Error triggering background content loading: ' + (error instanceof Error ? error.message : 'Unknown error'));
         }
         
-        if (documents && documents.length > 0) {
-          logger.info(`Found ${documents.length} documents for repository`, { prefix: 'Query' });
+        // Get repository data from GitIngest
+        const repoData: GitIngestData = await getRepoDataForPrompt(username, repo);
+        
+        if (repoData && !repoData.error) {
+          logger.info(`Retrieved GitIngest data for repository: ${repoKey}`, { prefix: 'GitIngest' });
           
-          // Start context preparation
-          logger.context.start();
+          // Log GitIngest metrics
+          const treeLines = repoData.tree.split('\n').length;
+          const contentChars = repoData.content.length;
+          const estimatedTokens = Math.round(contentChars / 4); // Rough estimate
+          
+          logger.info(`GitIngest metrics - Tree lines: ${treeLines}, Content chars: ${contentChars}, Est. tokens: ${estimatedTokens}`, { prefix: 'GitIngest' });
+          
+          // Generate prompt using the prompt generator
+          prompt = await generatePrompt(
+            query,
+            history.map((msg: ConversationMessage) => ({ role: msg.role, content: msg.content })),
+            repoData.tree,
+            repoData.content
+          );
+          
+          contextStats.files = treeLines; // Approximation
+          contextStats.totalChars = contentChars;
+          
+          logger.info(`Generated prompt for query using GitIngest data`, { prefix: 'Prompt' });
+        } else {
+          // Fallback if GitIngest data is not available
+          logger.warn(`GitIngest data not available for ${repoKey}, using fallback prompt`, { prefix: 'GitIngest' });
+          prompt = `You are a knowledgeable AI assistant with deep understanding of software development and GitHub repositories. 
 
-          // Prioritize README and package.json first
-          const readmeDoc = documents.find((doc: any) => 
-            doc.metadata?.filePath?.toLowerCase().includes('readme'));
-          const packageDoc = documents.find((doc: any) => 
-            doc.metadata?.filePath?.toLowerCase().includes('package.json'));
+Repository: ${repoKey}
 
-          if (readmeDoc || packageDoc) {
-            context += 'Project Overview:\n\n';
-            if (readmeDoc) {
-              context += `README:\n${readmeDoc.content}\n\n`;
-              contextStats.files++;
-              contextStats.totalChars += readmeDoc.content.length;
-            }
-            if (packageDoc) {
-              context += `Package Information:\n${packageDoc.content}\n\n`;
-              contextStats.files++;
-              contextStats.totalChars += packageDoc.content.length;
-            }
-          }
+Question: ${query}
 
-          // Add all other documents
-          context += 'Repository files:\n\n';
-          for (const doc of documents) {
-            // Skip if already included in overview
-            if (doc.metadata?.filePath?.toLowerCase().includes('readme') || 
-                doc.metadata?.filePath?.toLowerCase().includes('package.json')) {
-              continue;
-            }
-            if (doc.metadata?.filePath && doc.content) {
-              context += `File: ${doc.metadata.filePath}\n${doc.content}\n\n`;
-              contextStats.files++;
-              contextStats.totalChars += doc.content.length;
-            }
-          }
+Provide an insightful, technical response that demonstrates your expertise about this repository.`;
         }
       } catch (error) {
-        logger.error('Error fetching repository documents: ' + (error instanceof Error ? error.message : 'Unknown error'));
-      }
+        logger.error('Error generating prompt with GitIngest: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        prompt = `You are a knowledgeable AI assistant with deep understanding of software development and GitHub repositories. 
 
-      // Trigger background content loading
-      try {
-        await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/collect-repo-data`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, repo })
-        });
-      } catch (error) {
-        logger.error('Error triggering background content loading: ' + (error instanceof Error ? error.message : 'Unknown error'));
-      }
+Repository: ${repoKey}
 
-      // Get repository structure if needed
-      try {
-        const files = await fetchDirectoryContents(username, repo, '');
-        const fileList = files
-          .filter(file => file.type === 'file')
-          .slice(0, 10)
-          .map(file => `File: ${file.path}`)
-          .join('\n');
+Question: ${query}
 
-        context += '\nRepository structure:\n\n' + fileList;
-      } catch (error) {
-        logger.error('Error fetching directory contents: ' + (error instanceof Error ? error.message : 'Unknown error'));
+Provide an insightful, technical response that demonstrates your expertise about this repository.`;
       }
     }
 
@@ -129,8 +127,6 @@ export async function POST(req: Request) {
     logger.context.stats(contextStats);
 
     // Generate response using Gemini
-    const prompt = `You are a knowledgeable AI assistant with deep understanding of software development and GitHub repositories. You have comprehensive knowledge about the ${repoKey} repository.\n\nContext (for reference):\n${context}\n\nQuestion: ${query}\n\nProvide an insightful, technical response that demonstrates your expertise about this repository. Focus on being informative and natural in your explanation, as if you're already familiar with the codebase. Avoid explicitly referencing the provided context or files - instead, incorporate that knowledge naturally into your response.`;
-
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {

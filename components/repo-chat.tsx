@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
 import { SendHorizontal, Bot, User } from "lucide-react"
-import { generateText } from "ai"
-import { openai } from "@ai-sdk/openai"
 
 interface RepoChatProps {
   username: string
@@ -43,15 +41,27 @@ export default function RepoChat({ username, repo }: RepoChatProps) {
     setIsLoading(true)
 
     try {
-      // This would use the AI SDK to generate a response based on the repository context
-      const { text } = await generateText({
-        model: openai("gpt-4o"),
-        prompt: `You are an AI assistant helping with the GitHub repository ${username}/${repo}. 
-                The user asks: ${input}
-                Provide a helpful, detailed response about this repository.`,
+      // Use our GitIngest-powered Gemini API
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          repo,
+          query: userInput,
+          history: messages, // Send conversation history for context
+        }),
       })
 
-      setMessages((prev) => [...prev, { role: "assistant", content: text }])
+      const data = await response.json()
+
+      if (data.success) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.response }])
+      } else {
+        throw new Error(data.error || 'Unknown error')
+      }
     } catch (error) {
       console.error("Error generating response:", error)
       setMessages((prev) => [

@@ -44,19 +44,19 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
             console.log('Repository analysis completed successfully')
           }
           
-          // Then, trigger background processing for embeddings
+          // Then, trigger background processing using GitIngest
           try {
-            console.log('Starting background processing of repository files...')
+            console.log('Starting background processing of repository files with GitIngest...')
             fetch(`${baseUrl}/api/collect-repo-data`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username, repo })
             }).catch(error => {
-              console.error('Error in background processing:', error)
+              console.error('Error in background processing with GitIngest:', error)
             })
           } catch (error) {
             // Don't fail the main analysis if background processing fails
-            console.error('Error triggering background processing:', error)
+            console.error('Error triggering background processing with GitIngest:', error)
           }
         }
       } catch (error) {

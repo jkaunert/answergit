@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchDirectoryContents, fetchFileContent } from '@/lib/github';
 import { logger } from '@/lib/logger';
-import { checkDocumentProcessed, storeDocumentEmbeddings, combineAndStoreDocument } from '@/lib/supabase';
+import { checkDocumentProcessed, storeDocumentEmbeddings } from '@/lib/supabase';
+import { spawn } from 'child_process';
+import path from 'path';
 
 // Maximum chunk size for text processing
 const MAX_CHUNK_SIZE = 1000;
@@ -44,85 +45,106 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    console.log(`[${new Date().toISOString()}] Starting data collection for repository: ${repoId}`);
+    logger.info(`Starting data collection for repository: ${repoId} using GitIngest`, { prefix: 'GitIngest' });
     
-    // 1. Fetch repository structure
-    console.log(`[${new Date().toISOString()}] Fetching repository structure...`);
-    const files = await fetchDirectoryContents(username, repo, '');
-    console.log(`[${new Date().toISOString()}] Found ${files.length} total files in repository`);
-    
-    // 2. Filter and prioritize files to analyze
-    const filesToAnalyze = filterAndPrioritizeFiles(files);
-    console.log(`[${new Date().toISOString()}] Selected ${filesToAnalyze.length} relevant files for analysis`);
-    
-    // 3. Process files for embedding storage
-    const processedFiles = [];
-    const errors = [];
-    
-    // Store repository overview as main document
+    // Use GitIngest to process the repository
     try {
-      const repoOverview = generateRepositoryOverview(files, username, repo);
-      await storeDocumentEmbeddings(repoId, repoOverview, {
+      // Path to the Python bridge script
+      const scriptPath = path.join(process.cwd(), 'lib', 'gitingest_bridge.py');
+      
+      // Create a promise to handle the async process
+      const gitIngestData = await new Promise((resolve, reject) => {
+        // Spawn Python process with force refresh flag if needed
+        const args = ['--username', username, '--repo', repo];
+        if (force) args.push('--force');
+        
+        const pythonProcess = spawn('python', [scriptPath, ...args]);
+        
+        let dataString = '';
+        let errorString = '';
+        
+        // Collect data from script
+        pythonProcess.stdout.on('data', (data: Buffer) => {
+          dataString += data.toString();
+        });
+        
+        // Handle errors
+        pythonProcess.stderr.on('data', (data: Buffer) => {
+          errorString += data.toString();
+          logger.error(`Process error: ${data}`, { prefix: 'GitIngest' });
+        });
+        
+        // Process has completed
+        pythonProcess.on('close', (code: number) => {
+          if (code !== 0) {
+            logger.error(`Process exited with code ${code}`, { prefix: 'GitIngest' });
+            reject(new Error(errorString || `Process exited with code ${code}`));
+            return;
+          }
+          
+          try {
+            const result = JSON.parse(dataString);
+            resolve(result);
+          } catch (error) {
+            reject(new Error('Error parsing GitIngest output'));
+          }
+        });
+      });
+      
+      // Process the GitIngest data
+      const result = gitIngestData as any;
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error from GitIngest');
+      }
+      
+      // Store the repository data in the database
+      const { summary, tree, content } = result.data;
+      
+      // Log GitIngest metrics
+      const treeLines = tree.split('\n').length;
+      const contentChars = content.length;
+      const contentLines = content.split('\n').length;
+      const estimatedTokens = Math.round(contentChars / 4); // Rough estimate
+      
+      logger.info(`Repository metrics for ${repoId}:`, { prefix: 'GitIngest' });
+      logger.info(`- Tree structure: ${treeLines} lines`, { prefix: 'GitIngest' });
+      logger.info(`- Content: ${contentChars} characters, ${contentLines} lines`, { prefix: 'GitIngest' });
+      logger.info(`- Estimated tokens: ${estimatedTokens}`, { prefix: 'GitIngest' });
+      
+      // Store repository overview as main document
+      await storeDocumentEmbeddings(repoId, summary, {
         repo,
         owner: username,
         type: 'overview'
       }, true);
-      console.log(`[${new Date().toISOString()}] Stored repository overview embedding`);
+      logger.success('Stored repository overview embedding', { prefix: 'GitIngest' });
+      
+      // Process content for embedding storage
+      // The content from GitIngest is already processed, so we just need to store it
+      await storeDocumentEmbeddings(`${repoId}/content`, content, {
+        repo,
+        owner: username,
+        type: 'content'
+      });
+      logger.success('Stored repository content embedding', { prefix: 'GitIngest' });
+      
+      return NextResponse.json({
+        success: true,
+        message: 'Repository data collected and processed successfully'
+      });
     } catch (error) {
-      console.error('Error storing repository overview:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Failed to process repository: ${errorMessage}`, { prefix: 'GitIngest' });
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Failed to process repository with GitIngest: ${errorMessage}`
+        },
+        { status: 500 }
+      );
     }
-    
-    // Process individual files (limited to MAX_FILES_TO_PROCESS)
-    for (const file of filesToAnalyze.slice(0, MAX_FILES_TO_PROCESS)) {
-      try {
-        const content = await fetchFileContent(file.path, username, repo);
-        if (!content) continue;
-        
-        // Split content into chunks
-        const chunks = chunkContent(content);
-        const fileChunks = [];
-        
-        // Prepare chunks with metadata
-        for (let i = 0; i < chunks.length; i++) {
-          fileChunks.push({
-            content: chunks[i],
-            metadata: {
-              repo,
-              owner: username,
-              filePath: file.path,
-              fileType: getFileType(file.path),
-              chunkIndex: i,
-              totalChunks: chunks.length
-            }
-          });
-        }
-        
-        // Combine and store chunks as a single document
-        const documentId = `${repoId}/${file.path}`;
-        await combineAndStoreDocument(documentId, fileChunks);
-        console.log(`[${new Date().toISOString()}] Stored combined embeddings for ${file.path}`);
-        
-        processedFiles.push({
-          path: file.path,
-          chunksProcessed: chunks.length
-        });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`Error processing file ${file.path}:`, errorMessage);
-        errors.push({
-          path: file.path,
-          error: errorMessage
-        });
-      }
-    }
-    
-    return NextResponse.json({
-      success: true,
-      processedFiles,
-      errors: errors.length > 0 ? errors : undefined
-    });
   } catch (error) {
-    console.error('Error collecting repository data:', error);
+    logger.error('Error collecting repository data: ' + (error instanceof Error ? error.message : 'Unknown error'), { prefix: 'GitIngest' });
     return NextResponse.json(
       {
         success: false,
