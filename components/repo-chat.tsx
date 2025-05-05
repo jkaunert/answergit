@@ -35,7 +35,9 @@ export default function RepoChat({ username, repo }: RepoChatProps) {
 
     if (!input.trim() || isLoading) return
 
-    const userMessage = { role: "user" as const, content: input }
+    // Store user input before clearing it
+    const userInput = input
+    const userMessage = { role: "user" as const, content: userInput }
     setMessages((prev) => [...prev, userMessage])
     setInput("")
     setIsLoading(true)

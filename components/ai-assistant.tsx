@@ -69,9 +69,18 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   const [typingSpeed] = useState(5)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Ensure chat scrolls to bottom when new messages are added or when typing occurs
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, displayedContent])
+  
+  // Ensure input field maintains focus after sending a message
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    if (!isLoading) {
+      inputRef.current?.focus()
+    }
+  }, [isLoading])
 
   useEffect(() => {
     if (currentTypingIndex !== null && messages[currentTypingIndex]?.role === "assistant") {
@@ -114,10 +123,11 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   }
 
   const sendMessage = async () => {
-
-    const userMessage = { role: "user" as const, content: input }
+    // Store the user's input before clearing it
+    const userInput = input
+    const userMessage = { role: "user" as const, content: userInput }
     setMessages((prev) => [...prev, userMessage])
-    setInput("")
+    setInput("") // Clear input field after sending
     setIsLoading(true)
     setDisplayedContent("")
 
@@ -182,10 +192,10 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
       <ScrollArea className="flex-1 min-h-0 p-4 overflow-y-auto">
         <div className="space-y-4">
           {messages.map((message, index) => (
-            <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} mb-4`}>
               <div
-                className={`max-w-[85%] rounded-lg p-3 ${message.role === "user" ? "bg-emerald-600 text-white" : "bg-zinc-800 text-zinc-200"}`}
-                style={{ marginRight: message.role === "assistant" ? "2rem" : "0" }}
+                className={`max-w-[85%] rounded-lg p-3 ${message.role === "user" ? "bg-emerald-600 text-white shadow-md" : "bg-zinc-800 text-zinc-200"}`}
+                style={{ marginRight: message.role === "assistant" ? "2rem" : "0", marginLeft: message.role === "user" ? "2rem" : "0" }}
               >
                 <div className="flex items-start gap-2">
                   {message.role === "assistant" ? <Bot className="h-4 w-4 mt-1" /> : <User className="h-4 w-4 mt-1" />}
@@ -308,6 +318,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
             className="flex-1 resize-none bg-zinc-800 border-zinc-700 focus-visible:ring-emerald-500 text-sm"
             rows={2}
             disabled={isLoading}
+            ref={inputRef}
           />
           <Button
             type="submit"

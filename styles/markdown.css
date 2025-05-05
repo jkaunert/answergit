@@ -10,6 +10,26 @@
   display: block;
 }
 
+.prose div[align="right"] {
+  text-align: right;
+  width: 100%;
+  display: block;
+}
+
+.prose div[align="left"] {
+  text-align: left;
+  width: 100%;
+  display: block;
+}
+
+/* Ensure video elements display properly */
+.prose video {
+  max-width: 100%;
+  height: auto;
+  margin: 1rem auto;
+  display: block;
+}
+
 .prose h1 {
   color: #ffffff;
   font-size: 2rem;

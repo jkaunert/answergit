@@ -9,6 +9,7 @@ import Image from "next/image"
 import dynamic from 'next/dynamic'
 import NotebookViewer from './notebook-viewer'
 import "../styles/markdown.css"
+import * as React from "react"
 
 // Dynamically import PDF components with no SSR
 const PDFViewer = dynamic(
@@ -262,10 +263,46 @@ export default function FileViewer({ repoData }: FileViewerProps) {
             {fileContent ? (
               <div className="markdown-content">
                 <ReactMarkdown components={{
-                  div: ({ node, className, children, align, ...props }: React.ClassAttributes<HTMLDivElement> & React.HTMLAttributes<HTMLDivElement> & { node?: any; align?: string }) => {
-                    const alignClass = align === "center" ? "text-center" : "";
+                  // Handle div elements with alignment and other HTML attributes
+                  div: ({ node, className, children, align, ...props }) => {
+                    const alignClass = align === "center" ? "text-center" : align === "right" ? "text-right" : align === "left" ? "text-left" : "";
                     return <div className={`${className || ""} ${alignClass}`} {...props}>{children}</div>;
-                  }
+                  },
+                  // Handle HTML content in markdown, including video tags
+                  p: ({ node, className, children, ...props }) => {
+                    const childrenArray = React.Children.toArray(children);
+                    const hasHtmlContent = childrenArray.some(child => 
+                      typeof child === 'string' && (
+                        child.includes('<div') || 
+                        child.includes('<video') || 
+                        child.includes('<source') ||
+                        child.includes('<h2')
+                      )
+                    );
+                    
+                    if (hasHtmlContent) {
+                      const htmlContent = childrenArray.map(child => 
+                        typeof child === 'string' ? child : ''
+                      ).join('');
+                      return (
+                        <div 
+                          dangerouslySetInnerHTML={{ __html: htmlContent }} 
+                          className="markdown-content"
+                          {...props} 
+                        />
+                      );
+                    }
+                    
+                    return <p className={className} {...props}>{children}</p>;
+                  },
+                  // Handle video elements directly
+                  video: ({ node, ...props }) => (
+                    <video 
+                      controls 
+                      className="w-full max-w-3xl mx-auto rounded-lg shadow-lg"
+                      {...props}
+                    />
+                  )
                 }}>{fileContent}</ReactMarkdown>
               </div>
             ) : (
