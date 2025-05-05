@@ -2,7 +2,8 @@ import { Octokit } from '@octokit/rest';
 
 // Initialize Octokit with token validation and refresh logic
 let octokit: Octokit;
-let isTokenValidated = false;
+let tokenValidationCache: { isValid: boolean; timestamp: number } | null = null;
+const TOKEN_VALIDATION_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Initialize and validate GitHub token
 async function initializeGitHubClient() {
@@ -11,46 +12,55 @@ async function initializeGitHubClient() {
   }
 
   try {
+    // Check if we have a valid cached token validation
+    if (tokenValidationCache && 
+        Date.now() - tokenValidationCache.timestamp < TOKEN_VALIDATION_CACHE_DURATION && 
+        tokenValidationCache.isValid) {
+      return;
+    }
+
     // Validate token format before initializing
     const token = process.env.GITHUB_TOKEN.trim();
     if (!token.match(/^gh[ps]_[a-zA-Z0-9]{36,40}$/)) {
       throw new Error('Invalid GitHub token format. Please ensure you are using a valid GitHub token.');
     }
 
-    octokit = new Octokit({
-      auth: token,
-      request: {
-        timeout: 60000, // 60 seconds timeout
-        retries: 3, // Add retries for transient failures
-        headers: {
-          accept: 'application/vnd.github.v3+json',
-          'user-agent': 'answergit-app'
-          // Remove explicit authorization header as Octokit handles this internally
-        }
-      }
-    });
-
-    // Validate token only if not already validated
-    if (!isTokenValidated) {
-      let retryCount = 0;
-      const maxRetries = 3;
-      while (retryCount < maxRetries) {
-        try {
-          await validateGitHubToken();
-          isTokenValidated = true;
-          break;
-        } catch (validationError) {
-          if (retryCount === maxRetries - 1) {
-            throw validationError;
+    // Only create new Octokit instance if it doesn't exist or token has changed
+    if (!octokit) {
+      octokit = new Octokit({
+        auth: token,
+        request: {
+          timeout: 60000, // 60 seconds timeout
+          retries: 3, // Add retries for transient failures
+          headers: {
+            accept: 'application/vnd.github.v3+json',
+            'user-agent': 'answergit-app'
           }
-          retryCount++;
-          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
         }
+      });
+    }
+
+    // Validate token with retries
+    let retryCount = 0;
+    const maxRetries = 3;
+    while (retryCount < maxRetries) {
+      try {
+        await validateGitHubToken();
+        tokenValidationCache = { isValid: true, timestamp: Date.now() };
+        break;
+      } catch (validationError) {
+        if (retryCount === maxRetries - 1) {
+          tokenValidationCache = { isValid: false, timestamp: Date.now() };
+          throw validationError;
+        }
+        retryCount++;
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
       }
     }
   } catch (error) {
-    // Clear token on initialization failure
+    // Clear token and cache on initialization failure
     process.env.GITHUB_TOKEN = undefined;
+    tokenValidationCache = null;
     if (error instanceof Error) {
       throw new Error(`GitHub client initialization failed: ${error.message}`);
     }
