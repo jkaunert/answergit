@@ -116,21 +116,40 @@ export async function combineAndStoreDocument(repoId: string, chunks: { content:
   }
 }
 
-// Function to search similar documents
-export async function searchSimilarDocuments(query: string, maxResults = 50, repoFilter?: { username: string; repo: string }) {
+// Function to get all repository documents
+export async function getRepositoryDocuments(maxResults = 50, repoFilter?: { username: string; repo: string }) {
   try {
-    // Get all documents from the repository without similarity matching
-    const { data: documents, error } = await supabaseClient
+    logger.info('Starting repository document retrieval', { prefix: 'Supabase' });
+    
+    let query = supabaseClient
       .from('document_embeddings')
-      .select('*')
-      .eq('metadata->owner', repoFilter?.username)
-      .eq('metadata->repo', repoFilter?.repo)
+      .select('id, document_id, content, metadata')
+      .order('created_at', { ascending: false })
       .limit(maxResults)
 
-    if (error) throw error
+    // Apply repository filters if provided
+    if (repoFilter?.username && repoFilter?.repo) {
+      logger.info(`Applying repository filters - username: ${repoFilter.username}, repo: ${repoFilter.repo}`, { prefix: 'Supabase' });
+      query = query
+        .filter('metadata->>"owner"', 'eq', repoFilter.username)
+        .filter('metadata->>"repo"', 'eq', repoFilter.repo)
+    }
+
+    const { data: documents, error } = await query
+
+    if (error) {
+      logger.error(`Error retrieving documents: ${error.message}`, { prefix: 'Supabase' });
+      throw error;
+    }
+
+    logger.info(`Retrieved ${documents?.length || 0} documents from Supabase`, { prefix: 'Supabase' });
+    if (documents?.length === 0) {
+      logger.warn('No documents found in the database for the given filters', { prefix: 'Supabase' });
+    }
+
     return documents
   } catch (error) {
-    console.error('Error searching similar documents:', error)
+    console.error('Error fetching repository documents:', error)
     throw error
   }
 }

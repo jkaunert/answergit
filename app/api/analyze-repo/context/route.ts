@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchSimilarDocuments } from '@/lib/supabase';
+import { getRepositoryDocuments } from '@/lib/supabase';
 import { fetchDirectoryContents, fetchFileContent } from '@/lib/github';
 
 // Maximum number of files to include in context
@@ -16,12 +16,28 @@ export async function POST(req: NextRequest) {
       structure: '',
     };
     
-    // If a specific query is provided, use vector search to find relevant documents
+    // Get repository documents directly without similarity search
+    const documents = await getRepositoryDocuments(MAX_FILES_IN_CONTEXT, { username, repo });
+    
+    if (documents && documents.length > 0) {
+      // Extract file paths and contents from the documents
+      contextData.files = documents.map((doc: { metadata: { filePath: string; }; content: any; }) => {
+        // Extract file path from document metadata if available
+        const filePath = doc.metadata?.filePath || '';
+        return {
+          path: filePath,
+          content: doc.content
+        };
+      });
+    }
+    
+    // If a specific query is provided, get relevant documents from the repository
     if (query) {
-      const documents = await searchSimilarDocuments(query, MAX_FILES_IN_CONTEXT, { username, repo });
+      // Get documents from the current repository without similarity search
+      const documents = await getRepositoryDocuments(MAX_FILES_IN_CONTEXT, { username, repo });
       
       if (documents && documents.length > 0) {
-        // Extract file paths and contents from the matched documents
+        // Extract file paths and contents from the documents
         contextData.files = documents.map((doc: { metadata: { filePath: string; }; content: any; }) => {
           // Extract file path from document metadata if available
           const filePath = doc.metadata?.filePath || '';

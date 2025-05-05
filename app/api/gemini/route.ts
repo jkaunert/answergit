@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchFileContent, fetchDirectoryContents } from "@/lib/github";
-import { searchSimilarDocuments } from "@/lib/supabase";
+import { getRepositoryDocuments } from "@/lib/supabase";
 import { logger } from '@/lib/logger';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-// Define interface and initialize context statistics at top level
+// Define interface for context statistics
 interface ContextStats {
   files: number;
   totalChars: number;
 }
-
-let contextStats: ContextStats = { files: 0, totalChars: 0 };
 
 export async function POST(req: Request) {
   try {
@@ -21,6 +19,7 @@ export async function POST(req: Request) {
     const repoKey = `${username}/${repo}`;
 
     let context = `Repository: ${repoKey}\n\n`;
+    let contextStats: ContextStats = { files: 0, totalChars: 0 };
 
     if (filePath && fetchOnlyCurrentFile) {
       // For specific file queries, fetch only that file's content
@@ -31,128 +30,90 @@ export async function POST(req: Request) {
       logger.info(`Collecting repository data for ${repoKey}...`, { prefix: 'Query' });
 
       try {
-        // First, try to find relevant documents using vector search
-        let relevantDocuments = [];
-        if (query) {
-          logger.search.start(query);
-          // Increase similarity threshold for general queries
-          const similarityThreshold = query.toLowerCase().includes('about') || 
-            query.toLowerCase().includes('what') || 
-            query.toLowerCase().includes('explain') ? 
-            0.5 : 0.7;
-          // Only search within the current repository's files
-          relevantDocuments = await searchSimilarDocuments(query, 12, { username, repo });
-
-          if (relevantDocuments && relevantDocuments.length > 0) {
-            logger.search.results(relevantDocuments.length);
-            logger.search.details(relevantDocuments.map((doc: { similarity: any; metadata: { filePath: any; }; }) => ({
-              similarity: doc.similarity,
-              filePath: doc.metadata?.filePath || 'Unknown file'
-            })));
-          }
-
+        // Fetch all documents from the current repository
+        const documents = await getRepositoryDocuments(50, { username, repo });
+        
+        if (documents && documents.length > 0) {
+          logger.info(`Found ${documents.length} documents for repository`, { prefix: 'Query' });
+          
           // Start context preparation
           logger.context.start();
 
-          // For general queries, prioritize README and package.json
-          if (query.toLowerCase().includes('about') || 
-              query.toLowerCase().includes('what') || 
-              query.toLowerCase().includes('explain')) {
-            const readmeDoc = relevantDocuments.find((doc: any) => 
-              doc.metadata?.filePath?.toLowerCase().includes('readme'));
-            const packageDoc = relevantDocuments.find((doc: any) => 
-              doc.metadata?.filePath?.toLowerCase().includes('package.json'));
+          // Prioritize README and package.json first
+          const readmeDoc = documents.find((doc: any) => 
+            doc.metadata?.filePath?.toLowerCase().includes('readme'));
+          const packageDoc = documents.find((doc: any) => 
+            doc.metadata?.filePath?.toLowerCase().includes('package.json'));
 
-            if (readmeDoc || packageDoc) {
-              context += 'Project Overview:\n\n';
-              if (readmeDoc) {
-                context += `README:\n${readmeDoc.content}\n\n`;
-                contextStats.files++;
-                contextStats.totalChars += readmeDoc.content.length;
-              }
-              if (packageDoc) {
-                context += `Package Information:\n${packageDoc.content}\n\n`;
-                contextStats.files++;
-                contextStats.totalChars += packageDoc.content.length;
-              }
+          if (readmeDoc || packageDoc) {
+            context += 'Project Overview:\n\n';
+            if (readmeDoc) {
+              context += `README:\n${readmeDoc.content}\n\n`;
+              contextStats.files++;
+              contextStats.totalChars += readmeDoc.content.length;
+            }
+            if (packageDoc) {
+              context += `Package Information:\n${packageDoc.content}\n\n`;
+              contextStats.files++;
+              contextStats.totalChars += packageDoc.content.length;
             }
           }
 
-          // Add other relevant documents
-          if (relevantDocuments && relevantDocuments.length > 0) {
-            context += 'Relevant repository files:\n\n';
-            for (const doc of relevantDocuments) {
-              // Skip if already included in overview
-              if (doc.metadata?.filePath?.toLowerCase().includes('readme') || 
-                  doc.metadata?.filePath?.toLowerCase().includes('package.json')) {
-                continue;
-              }
-              const filePath = doc.metadata?.filePath || 'Unknown file';
-              context += `File: ${filePath}\n${doc.content}\n\n`;
+          // Add all other documents
+          context += 'Repository files:\n\n';
+          for (const doc of documents) {
+            // Skip if already included in overview
+            if (doc.metadata?.filePath?.toLowerCase().includes('readme') || 
+                doc.metadata?.filePath?.toLowerCase().includes('package.json')) {
+              continue;
+            }
+            if (doc.metadata?.filePath && doc.content) {
+              context += `File: ${doc.metadata.filePath}\n${doc.content}\n\n`;
               contextStats.files++;
               contextStats.totalChars += doc.content.length;
             }
           }
         }
+      } catch (error) {
+        logger.error('Error fetching repository documents: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      }
 
-        // Trigger background content loading to ensure repository is processed
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/collect-repo-data`, {
+      // Trigger background content loading
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/collect-repo-data`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, repo })
-        }).catch(error => console.error('Background content loading error:', error));
-
-        // If we didn't find relevant documents or if it's a file-specific query, get repository structure
-        if (relevantDocuments.length === 0 || filePath) {
-          const files = await fetchDirectoryContents(username, repo, '');
-          const fileList = files
-            .filter(file => file.type === 'file')
-            .slice(0, 10)
-            .map(file => `File: ${file.path}`)
-            .join('\n');
-
-          context += 'Repository structure:\n\n' + fileList;
-
-          // Try to get additional context from the context API
-          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/analyze-repo/context`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, repo, query })
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.context && data.context.files.length > 0) {
-              context += '\n\nAdditional repository contents:\n\n';
-              data.context.files.forEach(({ path, content }: { path: string; content: string }) => {
-                if (content) {
-                  context += `File: ${path}\n${content}\n\n`;
-                }
-              });
-            }
-          }
-        }
-
-        // If this is a file-specific query but we want repository context, add the file content
-        if (filePath && !fetchOnlyCurrentFile) {
-          const fileContent = await fetchFileContent(filePath, username, repo);
-          context += `\nCurrent file: ${filePath}\n${fileContent}\n\n`;
-        }
+        });
       } catch (error) {
-        logger.search.error(error instanceof Error ? error.message : 'Unknown error');
+        logger.error('Error triggering background content loading: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      }
+
+      // Get repository structure if needed
+      try {
+        const files = await fetchDirectoryContents(username, repo, '');
+        const fileList = files
+          .filter(file => file.type === 'file')
+          .slice(0, 10)
+          .map(file => `File: ${file.path}`)
+          .join('\n');
+
+        context += '\nRepository structure:\n\n' + fileList;
+      } catch (error) {
+        logger.error('Error fetching directory contents: ' + (error instanceof Error ? error.message : 'Unknown error'));
       }
     }
 
     // After all context is prepared
     logger.context.stats(contextStats);
 
-    // 4. Generate response using Gemini
+    // Generate response using Gemini
     const prompt = `You are a knowledgeable AI assistant with deep understanding of software development and GitHub repositories. You have comprehensive knowledge about the ${repoKey} repository.\n\nContext (for reference):\n${context}\n\nQuestion: ${query}\n\nProvide an insightful, technical response that demonstrates your expertise about this repository. Focus on being informative and natural in your explanation, as if you're already familiar with the codebase. Avoid explicitly referencing the provided context or files - instead, incorporate that knowledge naturally into your response.`;
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.8, // Slightly higher temperature for more natural responses
+        temperature: 0.8,
         maxOutputTokens: 2048,
       }
     });
