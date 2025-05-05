@@ -13,10 +13,22 @@ interface ContextStats {
   totalChars: number;
 }
 
+// Configure rate limiting and batching
+const RATE_LIMIT_DELAY = 100; // ms between requests
+const MAX_CONCURRENT_REQUESTS = 3;
+const BATCH_SIZE = 5;
+const MAX_RETRIES = 3;
+
+let timeoutId: string | number | NodeJS.Timeout | undefined; // Declare timeoutId at the beginning of the function
+
 export async function POST(req: Request) {
   try {
     const { username, repo, query, filePath, fetchOnlyCurrentFile = false } = await req.json();
     const repoKey = `${username}/${repo}`;
+    
+    // Set a longer timeout for Vercel
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 50000); // 50 second timeout
 
     let context = `Repository: ${repoKey}\n\n`;
     let contextStats: ContextStats = { files: 0, totalChars: 0 };
@@ -26,12 +38,21 @@ export async function POST(req: Request) {
       const fileContent = await fetchFileContent(filePath, username, repo);
       context += `Current file: ${filePath}\n${fileContent}\n\n`;
     } else {
-      // For general queries, collect comprehensive repository data
+      // For general queries, collect comprehensive repository data with rate limiting
       logger.info(`Collecting repository data for ${repoKey}...`, { prefix: 'Query' });
 
       try {
-        // Fetch all documents from the current repository
-        const documents = await getRepositoryDocuments(50, { username, repo });
+        // Fetch documents with retries and rate limiting
+        let documents = null;
+        for (let retry = 0; retry < MAX_RETRIES; retry++) {
+          try {
+            documents = await getRepositoryDocuments(30, { username, repo });
+            break;
+          } catch (error) {
+            if (retry === MAX_RETRIES - 1) throw error;
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retry) * 1000));
+          }
+        }
         
         if (documents && documents.length > 0) {
           logger.info(`Found ${documents.length} documents for repository`, { prefix: 'Query' });
@@ -120,19 +141,26 @@ export async function POST(req: Request) {
 
     const response = await result.response.text();
 
+    clearTimeout(timeoutId);
     return NextResponse.json({
       success: true,
       response
     });
   } catch (error) {
-    logger.error("Error processing Gemini request: " + (error instanceof Error ? error.message : 'Unknown error'));
+    clearTimeout(timeoutId);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isTimeout = errorMessage.includes('aborted') || errorMessage.includes('timeout');
+    
+    logger.error(`Error processing Gemini request: ${errorMessage}`);
     return NextResponse.json(
       {
         success: false,
-        error: `Failed to process request: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: isTimeout ? 
+          'Request timed out. Please try with a smaller repository or specific file query.' :
+          `Failed to process request: ${errorMessage}`
       },
       {
-        status: 500
+        status: isTimeout ? 504 : 500
       }
     );
   }

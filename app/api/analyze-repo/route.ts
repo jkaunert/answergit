@@ -26,6 +26,11 @@ export async function POST(req: NextRequest) {
     const { username, repo } = await req.json();
     const repoId = `${username}/${repo}`;
 
+    // Set a longer timeout for Vercel
+    req.signal.addEventListener('abort', () => {
+      throw new Error('Request aborted due to timeout');
+    });
+
     // Check if repository has already been processed
     const isProcessed = await checkDocumentProcessed(repoId);
     if (isProcessed) {
@@ -34,6 +39,11 @@ export async function POST(req: NextRequest) {
         message: 'Repository has already been analyzed'
       });
     }
+
+    // Configure rate limiting
+    const rateLimitDelay = 100; // ms between requests
+    const maxConcurrentRequests = 3;
+    let activeRequests = 0;
 
     logger.repoAnalysis.start(repoId);
 
@@ -46,19 +56,40 @@ export async function POST(req: NextRequest) {
     const filesToAnalyze = filterRelevantFiles(files);
     logger.repoAnalysis.relevantFiles(filesToAnalyze.length);
     
-    // 3. Fetch content of relevant files
+    // 3. Fetch content of relevant files with batching and retries
     logger.info('Fetching content of relevant files...', { prefix: 'Analysis' });
-    const fileContents = await Promise.all(
-      filesToAnalyze.slice(0, 20).map(async (file) => { // Limit to 20 most important files
-        try {
-          const content = await fetchFileContent(file.path, username, repo);
-          return `File: ${file.path}\n${content}`;
-        } catch (error) {
-          logger.repoAnalysis.error(file.path, error instanceof Error ? error.message : 'Unknown error');
+    const fileContents = [];
+    const batchSize = 5; // Process 5 files at a time
+    const maxRetries = 3;
+
+    for (let i = 0; i < Math.min(filesToAnalyze.length, 20); i += batchSize) {
+      const batch = filesToAnalyze.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map(async (file) => {
+          for (let retry = 0; retry < maxRetries; retry++) {
+            try {
+              const content = await fetchFileContent(file.path, username, repo);
+              logger.info(`Successfully fetched ${file.path}`, { prefix: 'Analysis' });
+              return `File: ${file.path}\n${content}`;
+            } catch (error) {
+              if (retry === maxRetries - 1) {
+                logger.repoAnalysis.error(file.path, error instanceof Error ? error.message : 'Unknown error');
+                return '';
+              }
+              // Exponential backoff
+              await new Promise(resolve => setTimeout(resolve, Math.pow(2, retry) * 1000));
+            }
+          }
           return '';
-        }
-      })
-    );
+        })
+      );
+      fileContents.push(...batchResults.filter(Boolean));
+      
+      // Add delay between batches to avoid rate limits
+      if (i + batchSize < filesToAnalyze.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
 
     // 4. Prepare context for Gemini
     const context = `Repository: ${username}/${repo}\n\n` +

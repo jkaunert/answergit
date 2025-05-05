@@ -100,9 +100,11 @@ initializeGitHubClient().catch(error => {
 });
 
 // Cache configuration
-const CACHE_EXPIRATION_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_EXPIRATION_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
+const MAX_CONCURRENT_REQUESTS = 3;
+const REQUEST_DELAY = 1000; // 1 second delay between requests
 
 interface CacheEntry<T> {
   data: T;
@@ -112,6 +114,40 @@ interface CacheEntry<T> {
 // Cache for repository data to avoid repeated API calls
 const repoCache = new Map<string, CacheEntry<Promise<any>>>();
 const fileCache = new Map<string, CacheEntry<Promise<FileNode[]>>>();
+const contentCache = new Map<string, CacheEntry<Promise<string>>>();
+
+// Request queue for rate limiting
+let requestQueue: Array<() => Promise<void>> = [];
+let isProcessingQueue = false;
+
+async function processRequestQueue() {
+  if (isProcessingQueue) return;
+  isProcessingQueue = true;
+
+  while (requestQueue.length > 0) {
+    const requests = requestQueue.splice(0, MAX_CONCURRENT_REQUESTS);
+    await Promise.all(requests.map(request => request()));
+    if (requestQueue.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY));
+    }
+  }
+
+  isProcessingQueue = false;
+}
+
+async function queueRequest<T>(request: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    requestQueue.push(async () => {
+      try {
+        const result = await request();
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    processRequestQueue();
+  });
+}
 
 interface FileNode {
   name: string;
@@ -216,7 +252,7 @@ export async function fetchRepoData(username: string, repo: string) {
   }
 }
 
-export async function fetchDirectoryContents(owner: string, repo: string, path: string, fetchContent = false, depth = 0): Promise<FileNode[]> {
+export async function fetchDirectoryContents(owner: string, repo: string, path: string, fetchContent = false, depth = 0, maxDepth = 2): Promise<FileNode[]> {
   try {
     const cacheKey = `${owner}/${repo}/${path}`;
     
@@ -256,7 +292,7 @@ export async function fetchDirectoryContents(owner: string, repo: string, path: 
         };
         nodes.push(node);
 
-        if (item.type === 'dir' && depth < 2) {
+        if (item.type === 'dir' && depth < maxDepth) {
           currentBatch.push({ item, node });
           if (currentBatch.length === batchSize) {
             batches.push(currentBatch);
@@ -307,38 +343,49 @@ export async function fetchFileContent(filePath: string, username: string, repo:
     // Ensure GitHub client is initialized
     await initializeGitHubClient();
     
-    return await retryWithBackoff(async () => {
-      const response = await octokit.repos.getContent({
-        owner: username,
-        repo,
-        path: filePath
-      });
+    const cacheKey = `${username}/${repo}/${filePath}`;
+    const cachedEntry = contentCache.get(cacheKey);
+    if (isCacheValid(cachedEntry)) {
+      return cachedEntry.data;
+    }
+    
+    const promise = queueRequest(async () => {
+      return await retryWithBackoff(async () => {
+        const response = await octokit.repos.getContent({
+          owner: username,
+          repo,
+          path: filePath
+        });
 
-      const { data } = response;
+        const { data } = response;
 
-      // Check if response is HTML (indicating an error)
-      if (typeof data === 'string') {
-        const responseData = data as string;
-        if (responseData && responseData.startsWith('<!DOCTYPE')) {
-          throw new Error('GitHub API authentication failed. Please check your token.');
+        // Check if response is HTML (indicating an error)
+        if (typeof data === 'string') {
+          const responseData = data as string;
+          if (responseData && responseData.startsWith('<!DOCTYPE')) {
+            throw new Error('GitHub API authentication failed. Please check your token.');
+          }
+          throw new Error('Invalid API response format');
         }
-        throw new Error('Invalid API response format');
-      }
 
-      // Check if we got a directory instead of a file
-      if (Array.isArray(data)) {
-        throw new Error('Requested path is a directory, not a file');
-      }
+        // Check if we got a directory instead of a file
+        if (Array.isArray(data)) {
+          throw new Error('Requested path is a directory, not a file');
+        }
 
-      // Verify we have a file with content
-      if (data.type !== 'file' || !('content' in data)) {
-        throw new Error('Invalid file data received from GitHub API');
-      }
+        // Verify we have a file with content
+        if (data.type !== 'file' || !('content' in data)) {
+          throw new Error('Invalid file data received from GitHub API');
+        }
 
-      // GitHub API returns base64 encoded content
-      const content = Buffer.from(data.content, 'base64').toString('utf-8');
-      return content;
+        // GitHub API returns base64 encoded content
+        const content = Buffer.from(data.content, 'base64').toString('utf-8');
+        return content;
+      });
     });
+
+    contentCache.set(cacheKey, { data: promise, timestamp: Date.now() });
+    return promise;
   } catch (error) {
     console.error(`Error fetching file content for ${filePath}:`, error);
     throw new Error(`Failed to fetch file content: ${error instanceof Error ? error.message : 'Unknown error'}`);

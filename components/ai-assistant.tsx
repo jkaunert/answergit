@@ -23,6 +23,7 @@ import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism"
 import ReactMarkdown from "react-markdown"
 
 import { ThemeToggle } from "@/components/ui/theme-toggle"
+import { GitHubRateLimit } from "@/components/ui/github-rate-limit"
 
 interface AiAssistantProps {
   username: string
@@ -186,7 +187,10 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
           <Sparkles className="h-4 w-4 mr-2 text-emerald-400" />
           <h2 className="font-medium text-sm">AI Assistant</h2>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <GitHubRateLimit />
+          <ThemeToggle />
+        </div>
       </div>
 
       <ScrollArea className="flex-1 min-h-0 p-4 overflow-y-auto">

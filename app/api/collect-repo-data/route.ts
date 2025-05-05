@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchDirectoryContents, fetchFileContent } from '@/lib/github';
-import { storeDocumentEmbeddings, combineAndStoreDocument, checkDocumentProcessed } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
+import { checkDocumentProcessed, storeDocumentEmbeddings, combineAndStoreDocument } from '@/lib/supabase';
 
 // Maximum chunk size for text processing
 const MAX_CHUNK_SIZE = 1000;
