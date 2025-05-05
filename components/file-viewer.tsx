@@ -264,10 +264,10 @@ export default function FileViewer({ repoData }: FileViewerProps) {
               <div className="markdown-content">
                 <ReactMarkdown components={{
                   // Handle div elements with alignment and other HTML attributes
-                  div: ({ node, className, children, align, ...props }) => {
-                    const alignClass = align === "center" ? "text-center" : align === "right" ? "text-right" : align === "left" ? "text-left" : "";
-                    return <div className={`${className || ""} ${alignClass}`} {...props}>{children}</div>;
+                  div: ({ node, className, children, ...props }) => {
+                    return <div className={className} {...props}>{children}</div>;
                   },
+                  
                   // Handle HTML content in markdown, including video tags
                   p: ({ node, className, children, ...props }) => {
                     const childrenArray = React.Children.toArray(children);
