@@ -45,6 +45,7 @@ async def check_repo_exists(repo_url: str) -> bool:
 
 async def ingest_repo(repo_url: str) -> dict:
     if not await check_repo_exists(repo_url):
+        print(f"[GitIngest] Repository not found: {repo_url}")
         raise ValueError("error:repo_not_found")
 
     try:
@@ -64,10 +65,13 @@ async def ingest_repo(repo_url: str) -> dict:
                 raise ValueError("error:repo_too_large")
 
         print(f"[GitIngest] Completed in {time.time() - start_time:.2f}s")
-        return { "summary": summary, "tree": tree, "content": content }
+        result = { "summary": summary, "tree": tree, "content": content }
+        print(f"[GitIngest] Successfully processed repository. Fields present: {list(result.keys())}")
+        return result
 
     except Exception as e:
         msg = str(e)
+        print(f"[GitIngest] Error processing repository: {msg}")
         if "not found" in msg.lower():
             raise ValueError("error:repo_not_found")
         if "bad credentials" in msg.lower() or "rate limit" in msg.lower():
@@ -96,9 +100,11 @@ def load_from_cache(username: str, repo: str) -> Optional[Dict[str, Any]]:
         return None
 
 async def get_repo_data(username: str, repo: str, force_refresh: bool = False) -> Dict[str, Any]:
+    print(f"[GitIngest] Processing request for {username}/{repo} (force_refresh: {force_refresh})")
     if not force_refresh:
         cached_data = load_from_cache(username, repo)
         if cached_data:
+            print(f"[GitIngest] Returning cached data for {username}/{repo}")
             return cached_data
 
     repo_url = f"https://github.com/{username}/{repo}"
@@ -118,20 +124,29 @@ async def get_repo_data(username: str, repo: str, force_refresh: bool = False) -
 
 @app.post("/api/analyze-repo")
 async def analyze_repo(request: Request):
-    body = await request.json()
-    username = body.get("username")
-    repo = body.get("repo")
-    force_refresh = body.get("force", False)
-
-    if not username or not repo:
-        raise HTTPException(status_code=400, detail="Missing 'username' or 'repo'.")
-
     try:
+        raw_body = await request.body()
+        print(f"[GitIngest] Raw request body: {raw_body.decode()}")
+        
+        body = await request.json()
+        print(f"[GitIngest] Parsed request body: {json.dumps(body)}")
+        
+        username = body.get("username")
+        repo = body.get("repo")
+        force_refresh = body.get("force", False)
+        print(f"[GitIngest] Processing request for {username}/{repo} (force: {force_refresh})")
+
+        if not username or not repo:
+            raise HTTPException(status_code=400, detail="Missing 'username' or 'repo'.")
+
         data = await get_repo_data(username, repo, force_refresh)
         if not all(key in data for key in ["summary", "tree", "content"]):
             raise ValueError("GitIngest response missing required fields")
         return { "success": True, "data": data }
+    except HTTPException as e:
+        return { "success": False, "error": str(e), "status_code": e.status_code }
     except ValueError as e:
         return { "success": False, "error": str(e) }
     except Exception as e:
+        print(f"[GitIngest] Unexpected error: {str(e)}")
         return { "success": False, "error": f"unexpected_error: {str(e)}" }
