@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from gitingest_service import get_repo_data
+from gitingest_service import get_repo_data, load_from_cache
 import json
 import uvicorn
 import os
@@ -20,8 +20,8 @@ class RepoRequest(BaseModel):
 def read_root():
     return {"message": "GitIngest API is running!"}
 
-@app.post("/api/analyze-repo")
-async def analyze_repo(request: RepoRequest):
+@app.post("/api/collect-repo-data")
+async def collect_repo_data(request: RepoRequest):
     """
     Analyzes a GitHub repository, either from cache or by fetching new data.
     """

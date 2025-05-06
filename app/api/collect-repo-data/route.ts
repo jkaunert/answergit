@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
-import { spawn } from 'child_process';
-import path from 'path';
 import { CacheManager } from '@/lib/cache-manager';
 
 // Maximum chunk size for text processing
@@ -49,75 +47,38 @@ export async function POST(req: NextRequest) {
     
     // Use GitIngest to process the repository
     try {
-      // Path to the Python bridge script
-      const scriptPath = path.join(process.cwd(), 'lib', 'gitingest_bridge.py');
-      
-      // Create a promise to handle the async process
-      const gitIngestData = await new Promise((resolve, reject) => {
-        // Spawn Python process with force refresh flag if needed
-        const args = ['--username', username, '--repo', repo];
-        if (force) args.push('--force');
-        
-        const pythonProcess = spawn('python', [scriptPath, ...args]);
-        
-        let dataString = '';
-        let errorString = '';
-        
-        // Collect data from script
-        pythonProcess.stdout.on('data', (data: Buffer) => {
-          dataString += data.toString();
-        });
-        
-        // Handle errors
-        pythonProcess.stderr.on('data', (data: Buffer) => {
-          const errorData = data.toString();
-          errorString += errorData;
-          logger.error(`Process error: ${errorData}`, { prefix: 'GitIngest' });
-        });
-        
-        // Process has completed
-        pythonProcess.on('close', (code: number) => {
-          // Log raw output for debugging
-          logger.debug(`GitIngest raw output:\n${dataString}`, { prefix: 'GitIngest' });
-          
-          if (code !== 0 || !dataString) {
-            const errorMsg = `Process exited with code ${code}: ${errorString}`;
-            logger.error(errorMsg, { prefix: 'GitIngest' });
-            reject(new Error(errorMsg));
-            return;
-          }
-          
-          try {
-            // Validate JSON structure before parsing
-            if (!dataString.trim().startsWith('{')) {
-              throw new Error('Invalid JSON structure from GitIngest');
-            }
-            
-            const result = JSON.parse(dataString);
-            
-            // Validate required fields in response
-            if (!result?.data?.summary || !result?.data?.tree || !result?.data?.content) {
-              throw new Error('GitIngest response missing required fields');
-            }
-            
-            resolve(result);
-          } catch (error) {
-            const errMsg = `Failed to parse GitIngest output: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            logger.error(errMsg, { prefix: 'GitIngest' });
-            reject(new Error(`${errMsg}\nRaw output: ${dataString.substring(0, 200)}...`));
-          }
-        });
+      // Call the remote GitIngest API
+      const apiUrl = process.env.GITINGEST_API_URL;
+      if (!apiUrl) {
+        throw new Error('GITINGEST_API_URL not set in environment');
+      }
+
+      const response = await fetch(`${apiUrl}/api/analyze-repo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, repo, force })
       });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || `API request failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
       
+      // Validate required fields in response
+      if (!result?.data?.summary || !result?.data?.tree || !result?.data?.content) {
+        throw new Error('GitIngest response missing required fields');
+      }
+
       // Process and cache the GitIngest data
-      const result = gitIngestData as any;
       if (!result.success) {
         throw new Error(result.error || 'Unknown error from GitIngest');
       }
 
       // Format and cache the data for analyze-repo endpoint
       const formattedData = formatGitIngestData(result);
-      CacheManager.saveToCache(username, repo, formattedData);
+      await CacheManager.saveToCache(username, repo, formattedData);
       
       // Log GitIngest metrics
       const { summary, tree, content } = result.data;
