@@ -4,6 +4,8 @@ from typing import Optional
 from gitingest_service import get_repo_data
 import json
 import uvicorn
+import os
+
 
 app = FastAPI()
 
