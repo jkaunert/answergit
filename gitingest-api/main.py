@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from gitingest_service import get_repo_data, load_from_cache
+from gitingest_service import check_repo_exists, get_repo_data, load_from_cache
 import json
 import uvicorn
 import os
@@ -13,7 +13,8 @@ app = FastAPI()
 class RepoRequest(BaseModel):
     username: str
     repo: str
-    force_refresh: bool = False
+    force: bool = False
+    force_refresh: bool = False  # For backward compatibility
 
 
 @app.get("/")
@@ -26,14 +27,22 @@ async def collect_repo_data(request: RepoRequest):
     Analyzes a GitHub repository, either from cache or by fetching new data.
     """
     try:
+        if not request.username or not request.repo:
+            raise ValueError("error:missing_parameters")
+            
+        # Use either force or force_refresh parameter
+        force_refresh = request.force or request.force_refresh
+        
         # Get repository data using the service
-        repo_data = await get_repo_data(request.username, request.repo, request.force_refresh)
+        repo_data = await get_repo_data(request.username, request.repo, force_refresh)
         
         # Prepare the response
         return {"success": True, "data": repo_data}
     except ValueError as e:
         # Handle known errors based on the logic in your services
-        if str(e) == "error:repo_not_found":
+        if str(e) == "error:missing_parameters":
+            raise HTTPException(status_code=400, detail="Missing required parameters: username and repo")
+        elif str(e) == "error:repo_not_found":
             raise HTTPException(status_code=404, detail="Repository not found")
         elif str(e) == "error:repo_private":
             raise HTTPException(status_code=403, detail="Private repository or rate limit exceeded")
@@ -64,7 +73,7 @@ async def get_repo_data_from_cache(username: str, repo: str):
 
 # Endpoint to check repository existence (optional but useful)
 @app.get("/api/repo-exists")
-async def check_repo_exists(username: str, repo: str):
+async def verify_repo_exists(username: str, repo: str):
     repo_url = f"https://github.com/{username}/{repo}"
     exists = await check_repo_exists(repo_url)
     return {"exists": exists}
