@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 /**
  * Generate a prompt for the LLM to answer a query using the codebase data from GitIngest.
@@ -77,7 +78,33 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
       // Path to the Python bridge script
       const scriptPath = path.join(process.cwd(), 'lib', 'gitingest_bridge.py');
       
-      // Spawn Python process
+      // Check if cache file exists and is valid
+      const cachePath = path.join(process.cwd(), 'cache', `${username}_${repo}_gitingest.json`);
+      if (fs.existsSync(cachePath)) {
+        try {
+          const cacheStats = fs.statSync(cachePath);
+          const cacheAge = Date.now() - cacheStats.mtimeMs;
+          const cacheExpirationMs = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+          
+          if (cacheAge < cacheExpirationMs) {
+            // Cache is valid, read from cache
+            const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+            const data: GitIngestData = {
+              tree: cacheData.tree,
+              content: cacheData.content,
+              success: true
+            };
+            logger.info(`[GitIngest] Retrieved data from cache - Tree size: ${data.tree.length}, Content size: ${data.content.length}`);
+            resolve(data);
+            return;
+          }
+        } catch (error) {
+          logger.error(`Error reading cache: ${error}`, { prefix: 'GitIngest' });
+          // Continue with fresh data fetch if cache read fails
+        }
+      }
+      
+      // Spawn Python process for fresh data
       const pythonProcess = spawn('python', [
         scriptPath,
         '--username', username,
@@ -117,7 +144,7 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
               content: result.data.content,
               success: true
             };
-            logger.info(`[GitIngest] Retrieved data - Tree size: ${data.tree.length}, Content size: ${data.content.length}`);
+            logger.info(`[GitIngest] Retrieved fresh data - Tree size: ${data.tree.length}, Content size: ${data.content.length}`);
             resolve(data);
           } else {
             logger.error(`GitIngest error: ${result.error}`, { prefix: 'GitIngest' });
@@ -138,6 +165,7 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
         }
       });
     });
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`Error getting repository data: ${errorMessage}`, { prefix: 'GitIngest' });
