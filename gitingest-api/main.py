@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from gitingest_service import get_repo_data
 import json
+import uvicorn
 
 app = FastAPI()
 
@@ -68,5 +69,5 @@ async def check_repo_exists(username: str, repo: str):
 
 # Running the app (for development purposes)
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))  # Default to 8000 for local dev
+    uvicorn.run("gitingest_service:app", host="0.0.0.0", port=port)
