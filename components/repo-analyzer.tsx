@@ -8,13 +8,14 @@ interface RepoAnalyzerProps {
 }
 
 export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(true)
   const [hasAnalyzed, setHasAnalyzed] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+
+    
     const triggerAnalysis = async () => {
-      if (isAnalyzing) return
       
       try {
         setIsAnalyzing(true)
@@ -22,6 +23,26 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
         
         const baseUrl = window.location.origin
         
+        // Check cache first
+        const cachedData = await fetch(`${baseUrl}/api/analyze-repo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, repo })
+        });
+
+        if (!cachedData.ok) {
+          try {
+            await fetch(`${baseUrl}/api/collect-repo-data`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username, repo })
+            });
+          } catch (error) {
+            setError('Failed to initiate data collection');
+            setIsAnalyzing(false);
+          }
+        }
+
         // Analyze repository using GitIngest
         const analyzeResponse = await fetch(`${baseUrl}/api/analyze-repo`, {
           method: 'POST',
@@ -50,7 +71,7 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
     if (!hasAnalyzed) {
       triggerAnalysis()
     }
-  }, [username, repo, isAnalyzing, hasAnalyzed])
+  }, [username, repo])
 
   // Reset states when username/repo changes
   useEffect(() => {
