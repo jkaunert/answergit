@@ -121,12 +121,15 @@ async def analyze_repo(request: Request):
     body = await request.json()
     username = body.get("username")
     repo = body.get("repo")
+    force_refresh = body.get("force", False)
 
     if not username or not repo:
         raise HTTPException(status_code=400, detail="Missing 'username' or 'repo'.")
 
     try:
-        data = await get_repo_data(username, repo)
+        data = await get_repo_data(username, repo, force_refresh)
+        if not all(key in data for key in ["summary", "tree", "content"]):
+            raise ValueError("GitIngest response missing required fields")
         return { "success": True, "data": data }
     except ValueError as e:
         return { "success": False, "error": str(e) }

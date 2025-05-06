@@ -71,6 +71,11 @@ export async function POST(req: NextRequest) {
         throw new Error('GitIngest response missing required fields');
       }
 
+      // Ensure files array exists even if not provided by GitIngest
+      if (!result.data.files) {
+        result.data.files = [];  // Initialize empty files array if not present
+      }
+
       // Process and cache the GitIngest data
       if (!result.success) {
         throw new Error(result.error || 'Unknown error from GitIngest');
