@@ -14,7 +14,6 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
 
   useEffect(() => {
     const triggerAnalysis = async () => {
-      // Reset states when username/repo changes
       if (isAnalyzing) return
       
       try {
@@ -23,7 +22,7 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
         
         const baseUrl = window.location.origin
         
-        // First, trigger the main repository analysis
+        // Analyze repository using GitIngest
         const analyzeResponse = await fetch(`${baseUrl}/api/analyze-repo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -34,41 +33,20 @@ export default function RepoAnalyzer({ username, repo }: RepoAnalyzerProps) {
         
         if (!analyzeResponse.ok) {
           setError(result.error || 'Failed to analyze repository')
-          console.error('Failed to trigger repository analysis:', result.error)
+          console.error('Failed to analyze repository:', result.error)
         } else {
-          // Mark as analyzed whether it's a new analysis or was already analyzed
           setHasAnalyzed(true)
-          if (result.message === 'Repository has already been analyzed') {
-            console.log('Repository was already analyzed')
-          } else {
-            console.log('Repository analysis completed successfully')
-          }
-          
-          // Then, trigger background processing using GitIngest
-          try {
-            console.log('Starting background processing of repository files with GitIngest...')
-            fetch(`${baseUrl}/api/collect-repo-data`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username, repo })
-            }).catch(error => {
-              console.error('Error in background processing with GitIngest:', error)
-            })
-          } catch (error) {
-            // Don't fail the main analysis if background processing fails
-            console.error('Error triggering background processing with GitIngest:', error)
-          }
+          console.log('Repository analysis completed successfully')
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         setError(errorMessage)
-        console.error('Error triggering repository analysis:', errorMessage)
+        console.error('Error analyzing repository:', errorMessage)
       } finally {
         setIsAnalyzing(false)
       }
     }
 
-    // Only trigger analysis if we haven't analyzed this repo yet
     if (!hasAnalyzed) {
       triggerAnalysis()
     }

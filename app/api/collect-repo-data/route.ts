@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
-import { checkDocumentProcessed, storeDocumentEmbeddings } from '@/lib/supabase';
 import { spawn } from 'child_process';
 import path from 'path';
+import { CacheManager } from '@/lib/cache-manager';
 
 // Maximum chunk size for text processing
 const MAX_CHUNK_SIZE = 1000;
@@ -70,37 +70,57 @@ export async function POST(req: NextRequest) {
         
         // Handle errors
         pythonProcess.stderr.on('data', (data: Buffer) => {
-          errorString += data.toString();
-          logger.error(`Process error: ${data}`, { prefix: 'GitIngest' });
+          const errorData = data.toString();
+          errorString += errorData;
+          logger.error(`Process error: ${errorData}`, { prefix: 'GitIngest' });
         });
         
         // Process has completed
         pythonProcess.on('close', (code: number) => {
-          if (code !== 0) {
-            logger.error(`Process exited with code ${code}`, { prefix: 'GitIngest' });
-            reject(new Error(errorString || `Process exited with code ${code}`));
+          // Log raw output for debugging
+          logger.debug(`GitIngest raw output:\n${dataString}`, { prefix: 'GitIngest' });
+          
+          if (code !== 0 || !dataString) {
+            const errorMsg = `Process exited with code ${code}: ${errorString}`;
+            logger.error(errorMsg, { prefix: 'GitIngest' });
+            reject(new Error(errorMsg));
             return;
           }
           
           try {
+            // Validate JSON structure before parsing
+            if (!dataString.trim().startsWith('{')) {
+              throw new Error('Invalid JSON structure from GitIngest');
+            }
+            
             const result = JSON.parse(dataString);
+            
+            // Validate required fields in response
+            if (!result?.data?.summary || !result?.data?.tree || !result?.data?.content) {
+              throw new Error('GitIngest response missing required fields');
+            }
+            
             resolve(result);
           } catch (error) {
-            reject(new Error('Error parsing GitIngest output'));
+            const errMsg = `Failed to parse GitIngest output: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            logger.error(errMsg, { prefix: 'GitIngest' });
+            reject(new Error(`${errMsg}\nRaw output: ${dataString.substring(0, 200)}...`));
           }
         });
       });
       
-      // Process the GitIngest data
+      // Process and cache the GitIngest data
       const result = gitIngestData as any;
       if (!result.success) {
         throw new Error(result.error || 'Unknown error from GitIngest');
       }
-      
-      // Store the repository data in the database
-      const { summary, tree, content } = result.data;
+
+      // Format and cache the data for analyze-repo endpoint
+      const formattedData = formatGitIngestData(result);
+      CacheManager.saveToCache(username, repo, formattedData);
       
       // Log GitIngest metrics
+      const { summary, tree, content } = result.data;
       const treeLines = tree.split('\n').length;
       const contentChars = content.length;
       const contentLines = content.split('\n').length;
@@ -111,22 +131,7 @@ export async function POST(req: NextRequest) {
       logger.info(`- Content: ${contentChars} characters, ${contentLines} lines`, { prefix: 'GitIngest' });
       logger.info(`- Estimated tokens: ${estimatedTokens}`, { prefix: 'GitIngest' });
       
-      // Store repository overview as main document
-      await storeDocumentEmbeddings(repoId, summary, {
-        repo,
-        owner: username,
-        type: 'overview'
-      }, true);
-      logger.success('Stored repository overview embedding', { prefix: 'GitIngest' });
-      
-      // Process content for embedding storage
-      // The content from GitIngest is already processed, so we just need to store it
-      await storeDocumentEmbeddings(`${repoId}/content`, content, {
-        repo,
-        owner: username,
-        type: 'content'
-      });
-      logger.success('Stored repository content embedding', { prefix: 'GitIngest' });
+      logger.success('Repository data processed successfully', { prefix: 'GitIngest' });
       
       return NextResponse.json({
         success: true,
@@ -308,4 +313,26 @@ function getFileType(filePath: string): string {
   };
   
   return fileTypeMap[extension] || 'text';
+}
+
+// Helper function to check if repository data exists in cache
+async function checkDocumentProcessed(repoId: string): Promise<boolean> {
+  return CacheManager.isDocumentProcessed(repoId);
+}
+
+// Helper function to format GitIngest data for Gemini
+function formatGitIngestData(result: any) {
+  const { data } = result;
+  return {
+    summary: data.summary,
+    tree: data.tree,
+    content: data.content,
+    timestamp: Date.now(),
+    files: data.files?.map((f: any) => ({
+      name: f.name,
+      path: f.path,
+      type: f.type,
+      priority: f.priority || 0
+    })) || []
+  };
 }

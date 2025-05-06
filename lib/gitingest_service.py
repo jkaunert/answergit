@@ -30,7 +30,7 @@ async def check_repo_exists(repo_url: str) -> bool:
             return False
 
 
-async def ingest_repo(repo_url: str) -> Tuple[str, str, str]:
+async def ingest_repo(repo_url: str) -> dict:
     """
     Converts a github repository into LLM-friendly format.
 
@@ -79,13 +79,17 @@ async def ingest_repo(repo_url: str) -> Tuple[str, str, str]:
         print(f"[GitIngest] - Tree structure: {tree_lines} lines")
         print(f"[GitIngest] - Content: {content_chars} characters, {content_lines} lines")
         
-        return summary, tree, content
+        return {
+            "summary": summary,
+            "tree": tree,
+            "content": content
+        }
     except Exception as e:
         if "Repository not found" in str(e) or "Not Found" in str(e):
             raise ValueError("error:repo_not_found")
         if "Bad credentials" in str(e) or "API rate limit exceeded" in str(e):
             raise ValueError("error:repo_private")
-        raise
+        raise ValueError(f"processing_error: {str(e)}")
 
 
 def get_cache_path(username: str, repo: str) -> str:

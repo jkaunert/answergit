@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { fetchDirectoryContents, fetchFileContent } from "@/lib/github";
-import { checkDocumentProcessed, combineAndStoreDocument, storeDocumentEmbeddings } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import path from "path";
+import fs from 'fs';
 
 const MAX_CHUNK_SIZE = 1000;
 
@@ -31,74 +31,33 @@ export async function POST(req: NextRequest) {
       throw new Error('Request aborted due to timeout');
     });
 
-    // Check if repository has already been processed
-    const isProcessed = await checkDocumentProcessed(repoId);
-    if (isProcessed) {
-      return NextResponse.json({
-        success: true,
-        message: 'Repository has already been analyzed'
-      });
-    }
-
-    // Configure rate limiting
-    const rateLimitDelay = 100; // ms between requests
-    const maxConcurrentRequests = 3;
-    let activeRequests = 0;
-
     logger.repoAnalysis.start(repoId);
 
-    // 1. Fetch repository structure
-    logger.info('Fetching repository structure...', { prefix: 'Analysis' });
-    const files = await fetchDirectoryContents(username, repo, '');
-    logger.repoAnalysis.fileDiscovered(files.length);
-    
-    // 2. Filter files to analyze (exclude binary files, assets, etc.)
-    const filesToAnalyze = filterRelevantFiles(files);
-    logger.repoAnalysis.relevantFiles(filesToAnalyze.length);
-    
-    // 3. Fetch content of relevant files with batching and retries
-    logger.info('Fetching content of relevant files...', { prefix: 'Analysis' });
-    const fileContents = [];
-    const batchSize = 5; // Process 5 files at a time
-    const maxRetries = 3;
+    // Get repository data from GitIngest cache
+    const cacheDir = path.join(process.cwd(), 'cache');
+    const cachePath = path.join(cacheDir, `${username}_${repo}_gitingest.json`);
 
-    for (let i = 0; i < Math.min(filesToAnalyze.length, 20); i += batchSize) {
-      const batch = filesToAnalyze.slice(i, i + batchSize);
-      const batchResults = await Promise.all(
-        batch.map(async (file) => {
-          for (let retry = 0; retry < maxRetries; retry++) {
-            try {
-              const content = await fetchFileContent(file.path, username, repo);
-              logger.info(`Successfully fetched ${file.path}`, { prefix: 'Analysis' });
-              return `File: ${file.path}\n${content}`;
-            } catch (error) {
-              if (retry === maxRetries - 1) {
-                logger.repoAnalysis.error(file.path, error instanceof Error ? error.message : 'Unknown error');
-                return '';
-              }
-              // Exponential backoff
-              await new Promise(resolve => setTimeout(resolve, Math.pow(2, retry) * 1000));
-            }
-          }
-          return '';
-        })
-      );
-      fileContents.push(...batchResults.filter(Boolean));
-      
-      // Add delay between batches to avoid rate limits
-      if (i + batchSize < filesToAnalyze.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+    if (!fs.existsSync(cachePath)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Repository data not found. Please analyze the repository first.'
+      }, { status: 404 });
     }
 
-    // 4. Prepare context for Gemini
+    const repoData = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+    const { summary, tree, content } = repoData;
+
+    // Process files for analysis
+    const processedFiles = filterRelevantFiles(repoData.files || []);
+
+    // Prepare context for Gemini
     const context = `Repository: ${username}/${repo}\n\n` +
       'Repository structure:\n' +
-      generateFileTree(files) + '\n\n' +
+      tree + '\n\n' +
       'Repository contents:\n\n' +
-      fileContents.filter(Boolean).join('\n\n');
+      content;
 
-    // 5. Generate repository summary using Gemini
+    // Generate repository summary using Gemini
     const prompt = `You are an AI assistant analyzing a GitHub repository.\n\n` +
       `Context:\n${context}\n\n` +
       `Task: Provide a comprehensive summary of this repository. Include:\n` +
@@ -119,57 +78,13 @@ export async function POST(req: NextRequest) {
 
     const response = await result.response.text();
 
-    // Process files for RAG
-    logger.info('Starting vector embedding generation and storage...', { prefix: 'Embeddings' });
-    const processedFiles = [];
-    const errors = [];
-
-    for (const file of filesToAnalyze.slice(0, 20)) {
-      try {
-        const content = await fetchFileContent(file.path, username, repo);
-        if (!content) continue;
-
-        // Split content into chunks
-        const chunks = chunkContent(content);
-        const fileChunks = [];
-
-        // Prepare chunks with metadata
-        for (let i = 0; i < chunks.length; i++) {
-          fileChunks.push({
-            content: chunks[i],
-            metadata: {
-              repo,
-              owner: username,
-              filePath: file.path,
-              fileType: file.type
-            }
-          });
-        }
-
-        // Combine and store chunks as a single document
-        const documentId = `${repoId}/${file.path}`;
-        await combineAndStoreDocument(documentId, fileChunks);
-        logger.embeddings.stored(documentId);
-
-        processedFiles.push({
-          path: file.path,
-          chunksProcessed: chunks.length
-        });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        logger.repoAnalysis.error(file.path, errorMessage);
-        errors.push({
-          path: file.path,
-          error: errorMessage
-        });
-      }
-    }
+    logger.success('Repository analysis completed successfully', { prefix: 'Analysis' });
 
     return NextResponse.json({
       success: true,
       summary: response,
       processedFiles,
-      errors: errors.length > 0 ? errors : undefined
+      errors: Error.length > 0 ? Error : undefined
     });
   } catch (error) {
     logger.error("Error analyzing repository: " + (error instanceof Error ? error.message : 'Unknown error'));
