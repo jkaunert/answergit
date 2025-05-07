@@ -1,4 +1,7 @@
 <div align="center">
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/1c3934fd-1dec-4516-90f7-267288f52805" alt="AnswerGit" />
+</p>
 
 # AnswerGit 🤖
 
