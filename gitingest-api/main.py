@@ -1,3 +1,4 @@
+import logging
 import os
 from sys import prefix
 from fastapi import FastAPI, HTTPException
@@ -42,8 +43,9 @@ async def fetch_github_content(github_link: str, max_file_size: int) -> dict:
 async def ingest_github_link(ingest_request: IngestRequest) -> dict:
     github_link = ingest_request.github_link
     max_file_size = ingest_request.max_file_size
-    logger.info(f"Received ingest request for github_link: {github_link}", {prefix: 'GitIngest'}) # Added logger
+    logging.info(f"Received ingest request for github_link: {github_link}") # ADDED HERE
     return await fetch_github_content(github_link, max_file_size)
+
 
 
 # 🚀 Add this block to start the server (required for Render)
