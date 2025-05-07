@@ -1,4 +1,5 @@
 import os
+from sys import prefix
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ import httpx  # For making async HTTP requests
 from typing import Optional
 
 from gitingest import ingest_async
+from uvicorn.main import logger
 
 app = FastAPI()
 
@@ -36,12 +38,13 @@ async def fetch_github_content(github_link: str, max_file_size: int) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/ingest/")
 async def ingest_github_link(ingest_request: IngestRequest) -> dict:
     github_link = ingest_request.github_link
     max_file_size = ingest_request.max_file_size
+    logger.info(f"Received ingest request for github_link: {github_link}", {prefix: 'GitIngest'}) # Added logger
     return await fetch_github_content(github_link, max_file_size)
+
 
 # 🚀 Add this block to start the server (required for Render)
 if __name__ == "__main__":

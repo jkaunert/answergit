@@ -14,12 +14,13 @@ export async function POST(req: NextRequest) {
 
         logger.info(`Starting data collection for repository: ${username}/${repo} using GitIngest`, { prefix: 'GitIngest' });
         
-
-        const response = await fetch(`${apiUrl}/ingest/`, { // Changed the endpoint
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ github_link: `${username}/${repo}` }) // Adjusted request body
+        logger.info(`Sending payload: ${JSON.stringify({ github_link: `https://github.com/${username}/${repo}` })}`, { prefix: 'GitIngest' }); // ADD THIS LINE
+        const response = await fetch(`${apiUrl}/ingest/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ github_link: `https://github.com/${username}/${repo}` })
         });
+      
 
         if (!response.ok) {
             const errorText = await response.text();
