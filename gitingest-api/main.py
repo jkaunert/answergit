@@ -42,3 +42,9 @@ async def ingest_github_link(ingest_request: IngestRequest) -> dict:
     github_link = ingest_request.github_link
     max_file_size = ingest_request.max_file_size
     return await fetch_github_content(github_link, max_file_size)
+
+# 🚀 Add this block to start the server (required for Render)
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))  # Render sets PORT dynamically
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
