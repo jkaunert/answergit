@@ -12,6 +12,7 @@ export default function Home() {
   const router = useRouter()
   const [repoUrl, setRepoUrl] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [loadingText, setLoadingText] = useState("Analyzing Repository...") // New state for loading text
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Focus the input field when component mounts
@@ -21,33 +22,69 @@ export default function Home() {
     }
   }, [])
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => { // Make handleAnalyze async
     // Extract username and repo from the URL
-    const urlPattern = /(?:github\.com\/)(([\w-]+)\/([\w-]+))/
+    const urlPattern = /(?:github\.com\/)(([-\w.]+)\/([-\w.]+))/
     const match = repoUrl.match(urlPattern)
 
+    let username: string | null = null;
+    let repo: string | null = null;
+
     if (match) {
-      const [, , username, repo] = match
-      setIsAnalyzing(true)
-      router.push(`/${username}/${repo}`)
+      [, , username, repo] = match
     } else {
       // If URL doesn't match pattern, check if it contains any text and try to extract username/repo
-      const simplifiedPattern = /(([\w-]+)\/([\w-]+))/
+      const simplifiedPattern = /(([-\w.]+)\/([-\w.]+))/
       const simplifiedMatch = repoUrl.match(simplifiedPattern)
       
       if (simplifiedMatch) {
-        const [, , username, repo] = simplifiedMatch
-        setIsAnalyzing(true)
-        router.push(`/${username}/${repo}`)
+        [, , username, repo] = simplifiedMatch
       } else if (repoUrl.trim() !== '') {
         // If no pattern matches but there is text, alert the user
         alert('Please enter a valid GitHub repository URL or username/repository format')
+        return;
       } else {
         // If empty, alert the user
         alert('Please enter a GitHub repository URL')
+        return;
       }
     }
-    
+
+    if (username && repo) {
+      setIsAnalyzing(true)
+      setLoadingText("Fetching Repository Data...")
+
+      try {
+        // First, trigger GitIngest analysis
+        setLoadingText("Analyzing repository with GitIngest...");
+        const gitIngestResponse = await fetch('/api/collect-repo-data', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ username, repo, force: true }), // force: true to ensure fresh fetch
+        });
+
+        const gitIngestResult = await gitIngestResponse.json();
+
+        if (!gitIngestResponse.ok) {
+          throw new Error(gitIngestResult.error || 'Failed to analyze repository with GitIngest');
+        }
+
+        setLoadingText("Repository analyzed successfully!");
+        
+        // Add a small delay to show success message before navigating
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Navigate to the repository page
+        router.push(`/${username}/${repo}`);
+      } catch (error) {
+        console.error('Failed to analyze repository:', error);
+        alert(error instanceof Error ? error.message : 'Failed to analyze repository');
+        setIsAnalyzing(false);
+        setLoadingText("Analyzing Repository..."); // Reset loading text
+      } 
+    }    
     // Log for debugging
     console.log('Analyze button clicked', { repoUrl })
   }
@@ -75,14 +112,8 @@ export default function Home() {
         <div className="max-w-3xl w-full text-center flex flex-col justify-center items-center h-full space-y-16">
           {isAnalyzing ? (
             <div className="flex items-center justify-center min-h-[200px]">
-              <div className="space-y-4 text-center">
-                <div className="flex space-x-2 justify-center">
-                  <div className="h-3 w-3 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                  <div className="h-3 w-3 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="h-3 w-3 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                </div>
-                <p className="text-lg font-medium bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent animate-pulse">Analyzing Repository...</p>
-              </div>
+              {/* Use EnhancedLoading component with dynamic text */}
+              <EnhancedLoading loadingText={loadingText} />
             </div>
           ) : (
             <>

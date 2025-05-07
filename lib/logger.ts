@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 
-type LogLevel = 'info' | 'success' | 'warning' | 'error' | 'debug';
+type LogLevel = 'info' | 'success' | 'warning' | 'error' | 'debug' | 'warn';
 
 interface LogOptions {
   timestamp?: boolean;
@@ -66,6 +66,10 @@ class Logger {
 
   warning(message: string, options: LogOptions = {}) {
     console.warn(this.formatMessage(message, { ...options, level: 'warning' }));
+  }
+
+  warn(message: string, options: LogOptions = {}) {
+    this.warning(message, options);
   }
 
   error(message: string, options: LogOptions = {}) {

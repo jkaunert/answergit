@@ -18,6 +18,10 @@ next-themes==0.4.4
 @google/generative-ai
 @octokit/rest
 
+# Python Dependencies
+gitingest==0.1.0
+aiohttp==3.9.1
+
 # Form and Data Handling
 react-hook-form==7.54.1
 zod==3.24.1

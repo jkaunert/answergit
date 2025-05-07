@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils"
 
-export function EnhancedLoading({ className }: { className?: string }) {
+export function EnhancedLoading({ className, loadingText }: { className?: string; loadingText?: string }) {
   return (
     <div className={cn("flex flex-col items-center justify-center space-y-6", className)}>
       <div className="relative">
@@ -34,7 +34,7 @@ export function EnhancedLoading({ className }: { className?: string }) {
       
       {/* Text with gradient effect */}
       <div className="text-xl font-medium bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent animate-pulse">
-        Analyzing Repository...
+        {loadingText || "Analyzing Repository..."}
       </div>
       
       {/* Dots animation */}

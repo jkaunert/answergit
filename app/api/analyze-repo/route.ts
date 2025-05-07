@@ -1,274 +1,160 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { fetchDirectoryContents, fetchFileContent } from "@/lib/github";
-import { checkDocumentProcessed, combineAndStoreDocument, storeDocumentEmbeddings } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-
-const MAX_CHUNK_SIZE = 1000;
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-// File extensions to exclude from analysis
-const EXCLUDED_EXTENSIONS = [
-  '.jpg', '.jpeg', '.png', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot',
-  '.mp4', '.webm', '.mp3', '.wav', '.pdf', '.zip', '.tar', '.gz', '.lock'
-];
-
-// Directories to exclude from analysis
-const EXCLUDED_DIRECTORIES = [
-  'node_modules', '.git', '.github', 'dist', 'build', '.next', 'public/assets',
-  'coverage', '.vscode', '.idea'
-];
+import { CacheManager } from '@/lib/cache-manager';
 
 export async function POST(req: NextRequest) {
-  try {
-    const { username, repo } = await req.json();
-    const repoId = `${username}/${repo}`;
+    try {
+        const { username, repo, force_refresh = false } = await req.json();
+        const repoId = `${username}/${repo}`;
 
-    // Set a longer timeout for Vercel
-    req.signal.addEventListener('abort', () => {
-      throw new Error('Request aborted due to timeout');
-    });
-
-    // Check if repository has already been processed
-    const isProcessed = await checkDocumentProcessed(repoId);
-    if (isProcessed) {
-      return NextResponse.json({
-        success: true,
-        message: 'Repository has already been analyzed'
-      });
-    }
-
-    // Configure rate limiting
-    const rateLimitDelay = 100; // ms between requests
-    const maxConcurrentRequests = 3;
-    let activeRequests = 0;
-
-    logger.repoAnalysis.start(repoId);
-
-    // 1. Fetch repository structure
-    logger.info('Fetching repository structure...', { prefix: 'Analysis' });
-    const files = await fetchDirectoryContents(username, repo, '');
-    logger.repoAnalysis.fileDiscovered(files.length);
-    
-    // 2. Filter files to analyze (exclude binary files, assets, etc.)
-    const filesToAnalyze = filterRelevantFiles(files);
-    logger.repoAnalysis.relevantFiles(filesToAnalyze.length);
-    
-    // 3. Fetch content of relevant files with batching and retries
-    logger.info('Fetching content of relevant files...', { prefix: 'Analysis' });
-    const fileContents = [];
-    const batchSize = 5; // Process 5 files at a time
-    const maxRetries = 3;
-
-    for (let i = 0; i < Math.min(filesToAnalyze.length, 20); i += batchSize) {
-      const batch = filesToAnalyze.slice(i, i + batchSize);
-      const batchResults = await Promise.all(
-        batch.map(async (file) => {
-          for (let retry = 0; retry < maxRetries; retry++) {
-            try {
-              const content = await fetchFileContent(file.path, username, repo);
-              logger.info(`Successfully fetched ${file.path}`, { prefix: 'Analysis' });
-              return `File: ${file.path}\n${content}`;
-            } catch (error) {
-              if (retry === maxRetries - 1) {
-                logger.repoAnalysis.error(file.path, error instanceof Error ? error.message : 'Unknown error');
-                return '';
-              }
-              // Exponential backoff
-              await new Promise(resolve => setTimeout(resolve, Math.pow(2, retry) * 1000));
-            }
-          }
-          return '';
-        })
-      );
-      fileContents.push(...batchResults.filter(Boolean));
-      
-      // Add delay between batches to avoid rate limits
-      if (i + batchSize < filesToAnalyze.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    }
-
-    // 4. Prepare context for Gemini
-    const context = `Repository: ${username}/${repo}\n\n` +
-      'Repository structure:\n' +
-      generateFileTree(files) + '\n\n' +
-      'Repository contents:\n\n' +
-      fileContents.filter(Boolean).join('\n\n');
-
-    // 5. Generate repository summary using Gemini
-    const prompt = `You are an AI assistant analyzing a GitHub repository.\n\n` +
-      `Context:\n${context}\n\n` +
-      `Task: Provide a comprehensive summary of this repository. Include:\n` +
-      `1. What is the purpose of this project?\n` +
-      `2. What technologies/frameworks does it use?\n` +
-      `3. What is the architecture/structure of the codebase?\n` +
-      `4. What are the key components and how do they interact?\n` +
-      `5. Any notable patterns or best practices used?\n\n` +
-      `Format your response in markdown with appropriate headings and bullet points.`;
-
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2, // Lower temperature for more factual responses
-        maxOutputTokens: 2048,
-      }
-    });
-
-    const response = await result.response.text();
-
-    // Process files for RAG
-    logger.info('Starting vector embedding generation and storage...', { prefix: 'Embeddings' });
-    const processedFiles = [];
-    const errors = [];
-
-    for (const file of filesToAnalyze.slice(0, 20)) {
-      try {
-        const content = await fetchFileContent(file.path, username, repo);
-        if (!content) continue;
-
-        // Split content into chunks
-        const chunks = chunkContent(content);
-        const fileChunks = [];
-
-        // Prepare chunks with metadata
-        for (let i = 0; i < chunks.length; i++) {
-          fileChunks.push({
-            content: chunks[i],
-            metadata: {
-              repo,
-              owner: username,
-              filePath: file.path,
-              fileType: file.type
-            }
-          });
+        const apiUrl = process.env.GITINGEST_API_URL;
+        if (!apiUrl) {
+            return NextResponse.json({ success: false, error: "GITINGEST_API_URL not set in environment." }, { status: 500 });
         }
 
-        // Combine and store chunks as a single document
-        const documentId = `${repoId}/${file.path}`;
-        await combineAndStoreDocument(documentId, fileChunks);
-        logger.embeddings.stored(documentId);
+        logger.info(`Starting data collection for repository: ${username}/${repo} using GitIngest`, { prefix: 'GitIngest' });
+        
 
-        processedFiles.push({
-          path: file.path,
-          chunksProcessed: chunks.length
+        const response = await fetch(`${apiUrl}/ingest/`, { // Changed the endpoint
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ github_link: `${username}/${repo}` }) // Adjusted request body
         });
-      } catch (error) {
+
+        if (!response.ok) {
+            const errorText = await response.text();
+                let errorJson;
+                try {
+                    errorJson = JSON.parse(errorText);
+                } catch (e) {
+                    // If not JSON, use the text as is
+                    throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+                }
+                throw new Error(errorJson.detail || `API request failed with status ${response.status}`);
+            }
+
+        const result = await response.json();
+        logger.info(`Received response with status: ${response.status}`, { prefix: 'GitIngest' });
+        logger.info(`Response body: ${JSON.stringify(result)}`, { prefix: 'GitIngest' });
+            
+        // First, check if the response has the expected structure
+        if (!result || typeof result !== 'object') {
+            throw new Error('Invalid response format from GitIngest');
+        }
+            
+        // Handle both direct data format and nested data format
+        let data;
+            
+        if (result.data && typeof result.data === 'object') {
+            // Standard format: { success: true, data: { summary, tree, content } }
+            data = result.data;
+        } else if (result.summary && result.tree && result.content) {
+            // Alternative format: the result itself contains the data fields
+            data = result;
+        } else {
+            // Neither format matches
+            throw new Error('GitIngest response missing required data fields');
+        }
+
+        // Validate required fields exist
+        if (!data.summary || !data.tree || !data.content) {
+          logger.warn('Some GitIngest fields may be missing, but proceeding with available data', { prefix: 'GitIngest' });
+        }
+
+        if (result.success === false) {
+          // Handle specific error types
+          if (result.error === 'error:repo_not_found') {
+            logger.warn(`Repository not found: ${repoId}`, { prefix: 'GitIngest' });
+            return NextResponse.json(
+              {
+                success: false,
+                error: `Repository not found: ${repoId}. Please verify the username and repository name.`
+              },
+              { status: 404 }
+            );
+          } else if (result.error === 'error:repo_too_large') {
+            logger.warn(`Repository too large: ${repoId}`, { prefix: 'GitIngest' });
+            return NextResponse.json(
+              {
+                success: false,
+                error: `Repository ${repoId} is too large to process. Please try a smaller repository.`
+              },
+              { status: 413 }
+            );
+          } else if (result.error === 'error:repo_private') {
+            logger.warn(`Repository is private or rate limited: ${repoId}`, { prefix: 'GitIngest' });
+            return NextResponse.json(
+              {
+                success: false,
+                error: `Repository ${repoId} is private or GitHub API rate limit exceeded. Please try again later.`
+              },
+              { status: 403 }
+            );
+          }
+            
+          throw new Error(result.error || 'Unknown error from GitIngest');
+        }
+
+        // Ensure files array exists even if not provided by GitIngest
+        if (!data.files) {
+          data.files = [];  // Initialize empty files array if not present
+        }
+            
+        return NextResponse.json({
+          success: true,
+          data: { // Now, data key has to include all data
+            ...result,  // Include all fields returned by GitIngest
+            success: true // Explicitly confirm success
+          }
+        });
+    } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        logger.repoAnalysis.error(file.path, errorMessage);
-        errors.push({
-          path: file.path,
-          error: errorMessage
-        });
-      }
+        logger.error(`Failed to process repository: ${errorMessage}`, { prefix: 'GitIngest' });
+        return NextResponse.json(
+            {
+                success: false,
+                error: `Failed to process repository with GitIngest: ${errorMessage}`
+            },
+            { status: 500 }
+        );
     }
-
-    return NextResponse.json({
-      success: true,
-      summary: response,
-      processedFiles,
-      errors: errors.length > 0 ? errors : undefined
-    });
-  } catch (error) {
-    logger.error("Error analyzing repository: " + (error instanceof Error ? error.message : 'Unknown error'));
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Failed to analyze repository: ${error instanceof Error ? error.message : 'Unknown error'}`
-      },
-      {
-        status: 500
-      }
-    );
-  }
 }
 
-// Helper function to filter relevant files for analysis
-function filterRelevantFiles(files: any[], currentPath = '') {
-  let relevantFiles: any[] = [];
-  
-  for (const file of files) {
-    const path = currentPath ? `${currentPath}/${file.name}` : file.name;
-    
-    if (file.type === 'directory') {
-      // Skip excluded directories
-      if (EXCLUDED_DIRECTORIES.some(dir => path.includes(dir))) {
-        continue;
-      }
-      
-      // Recursively process subdirectories
-      if (file.children) {
-        relevantFiles = [...relevantFiles, ...filterRelevantFiles(file.children, path)];
-      }
-    } else if (file.type === 'file') {
-      // Skip excluded file extensions
-      if (EXCLUDED_EXTENSIONS.some(ext => file.name.endsWith(ext))) {
-        continue;
-      }
-      
-      // Prioritize important files
-      const isPriority = [
-        'package.json', 'tsconfig.json', 'README.md', 'next.config.js', 'next.config.mjs',
-        'app/layout.tsx', 'app/page.tsx', 'index.ts', 'index.tsx', 'main.ts', 'main.tsx'
-      ].includes(file.name);
-      
-      relevantFiles.push({
-        ...file,
-        priority: isPriority ? 1 : 0
-      });
-    }
-  }
-  
-  // Sort by priority (important files first)
-  return relevantFiles.sort((a, b) => b.priority - a.priority);
-}
+// Helper function to format GitIngest data for Gemini
+function formatGitIngestData(result: any) {
+    // The GitIngest API returns a response in this format:
+    // { success: true, data: { summary: "...", tree: "...", content: "..." } }
+    // But sometimes it might return the data directly without nesting
 
-// Helper function to generate a text representation of the file tree
-function generateFileTree(files: any[], indent = '') {
-  let result = '';
-  
-  for (const file of files) {
-    if (file.type === 'directory') {
-      // Skip excluded directories
-      if (EXCLUDED_DIRECTORIES.some(dir => file.name.includes(dir))) {
-        continue;
-      }
-      
-      result += `${indent}📁 ${file.name}/\n`;
-      
-      if (file.children) {
-        result += generateFileTree(file.children, indent + '  ');
-      }
+    // First determine where the actual data is located
+    let data;
+
+    if (result.data && typeof result.data === 'object') {
+        // Standard format with nested data object
+        data = result.data;
+    } else if (result.summary || result.tree || result.content) {
+        // Alternative format: the result itself contains the data
+        data = result;
+    } else if (typeof result === 'object') {
+        // Unknown format but still an object, use as is
+        data = result;
     } else {
-      // Skip excluded file extensions
-      if (EXCLUDED_EXTENSIONS.some(ext => file.name.endsWith(ext))) {
-        continue;
-      }
-      
-      result += `${indent}📄 ${file.name}\n`;
+        // Fallback for unexpected formats
+        logger.warn('Unexpected GitIngest data format', { prefix: 'GitIngest' });
+        data = {};
     }
-  }
-  
-  return result;
-}
 
-// Helper function to chunk text content
-function chunkContent(content: string, maxChunkSize: number = MAX_CHUNK_SIZE): string[] {
-  const chunks: string[] = [];
-  const sentences = content.split(/(?<=[.!?])\s+/);
-  let currentChunk = '';
-
-  for (const sentence of sentences) {
-    if ((currentChunk + sentence).length <= maxChunkSize) {
-      currentChunk += (currentChunk ? ' ' : '') + sentence;
-    } else {
-      if (currentChunk) chunks.push(currentChunk);
-      currentChunk = sentence;
-    }
-  }
-
-  if (currentChunk) chunks.push(currentChunk);
-  return chunks;
+    // Create a properly formatted object with all required fields
+    return {
+        summary: data.summary || 'No summary available',
+        tree: data.tree || 'No tree structure available',
+        content: data.content || '',
+        timestamp: Date.now(),
+        files: Array.isArray(data.files) ? data.files.map((f: any) => ({
+            name: f.name || 'unknown',
+            path: f.path || '',
+            type: f.type || 'file',
+            priority: f.priority || 0
+        })) : []
+    };
 }
