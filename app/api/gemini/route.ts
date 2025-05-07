@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchFileContent } from "@/lib/github";
 import { logger } from '@/lib/logger';
 import { generatePrompt, getRepoDataForPrompt } from '@/lib/prompt-generator';
+import { RedisCacheManager } from '@/lib/redis-cache-manager';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
     logger.info(`[${new Date().toISOString()}] Starting query processing for repository: ${repoKey}`, { prefix: 'Query' });
     
-    let prompt: string;
+    let prompt = '';
     let contextStats: ContextStats = { files: 0, totalChars: 0 };
     
     // Start context preparation
@@ -76,40 +77,69 @@ Provide a detailed, technical response that directly addresses the question abou
         }
         
         // Get repository data from GitIngest
-        const repoData: GitIngestData = await getRepoDataForPrompt(username, repo);
+        let repoData: RepoData | null = null;
         
-        if (repoData && !repoData.error) {
-          logger.info(`Retrieved GitIngest data for repository: ${repoKey}`, { prefix: 'GitIngest' });
+        // Check Redis cache first
+        try {
+          repoData = await RedisCacheManager.getFromCache(username, repo);
+          if (repoData) {
+            logger.info(`Using cached data for ${repoKey}`, { prefix: 'Context' });
+            
+            // Calculate context stats from cached data
+            const treeLines = repoData.tree.split('\n').length;
+            const contentChars = repoData.content.length;
+            
+            // Generate prompt using the cached data
+            prompt = await generatePrompt(
+              query,
+              history.map((msg: ConversationMessage) => ({ role: msg.role, content: msg.content })),
+              repoData.tree,
+              repoData.content
+            );
+            
+            contextStats.files = treeLines; // Approximation based on tree lines
+            contextStats.totalChars = contentChars;
+            
+            logger.info(`Generated prompt using cached data for ${repoKey}`, { prefix: 'Prompt' });
+          }
+        } catch (error) {
+          logger.error(`Cache retrieval failed: ${error}`, { prefix: 'Context' });
+        }
+
+        if (!repoData) {
+          // Existing GitIngest processing logic
+          const gitIngestData: GitIngestData = await getRepoDataForPrompt(username, repo);
           
-          // Log GitIngest metrics
-          const treeLines = repoData.tree.split('\n').length;
-          const contentChars = repoData.content.length;
-          const estimatedTokens = Math.round(contentChars / 4); // Rough estimate
-          
-          logger.info(`GitIngest metrics - Tree lines: ${treeLines}, Content chars: ${contentChars}, Est. tokens: ${estimatedTokens}`, { prefix: 'GitIngest' });
-          
-          // Generate prompt using the prompt generator
-          prompt = await generatePrompt(
-            query,
-            history.map((msg: ConversationMessage) => ({ role: msg.role, content: msg.content })),
-            repoData.tree,
-            repoData.content
-          );
-          
-          contextStats.files = treeLines; // Approximation
-          contextStats.totalChars = contentChars;
-          
-          logger.info(`Generated prompt for query using GitIngest data`, { prefix: 'Prompt' });
-        } else {
-          // Fallback if GitIngest data is not available
-          logger.warn(`GitIngest data not available for ${repoKey}, using fallback prompt`, { prefix: 'GitIngest' });
-          prompt = `You are a knowledgeable AI assistant with deep understanding of software development and GitHub repositories. 
+          if (gitIngestData && !gitIngestData.error) {
+            logger.info(`Retrieved GitIngest data for repository: ${repoKey}`, { prefix: 'GitIngest' });
+            
+            // Calculate context stats from repo data
+            const treeLines = gitIngestData.tree.split('\n').length;
+            const contentChars = gitIngestData.content.length;
+
+            // Generate prompt using the GitIngest data
+            prompt = await generatePrompt(
+              query,
+              history.map((msg: ConversationMessage) => ({ role: msg.role, content: msg.content })),
+              gitIngestData.tree,
+              gitIngestData.content
+            );
+            
+            contextStats.files = treeLines; // Approximation based on tree lines
+            contextStats.totalChars = contentChars;
+            
+            logger.info(`Generated prompt for query using GitIngest data`, { prefix: 'Prompt' });
+          } else {
+            // Fallback if GitIngest data is not available
+            logger.warn(`GitIngest data not available for ${repoKey}, using fallback prompt`, { prefix: 'GitIngest' });
+            prompt = `You are a knowledgeable AI assistant with deep understanding of software development and GitHub repositories. 
 
 Repository: ${repoKey}
 
 Question: ${query}
 
 Provide an insightful, technical response that demonstrates your expertise about this repository.`;
+          }
         }
       } catch (error) {
         logger.error('Error generating prompt with GitIngest: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -160,4 +190,11 @@ Provide an insightful, technical response that demonstrates your expertise about
       }
     );
   }
+}
+
+interface RepoData {
+  tree: string;
+  content: string;
+  success?: boolean;
+  error?: string;
 }
