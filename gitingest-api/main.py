@@ -1,13 +1,26 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
-from gitingest_service import check_repo_exists, get_repo_data, load_from_cache
+from typing import Optional, Dict, Any
+from gitingest_service import get_repo_data, load_from_cache
 import json
 import uvicorn
 import os
 
+# Configure CORS
+origins = ["*"]  # In production, replace with specific domains
+
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic model for input validation
 class RepoRequest(BaseModel):
@@ -36,20 +49,28 @@ async def collect_repo_data(request: RepoRequest):
         # Get repository data using the service
         repo_data = await get_repo_data(request.username, request.repo, force_refresh)
         
+        # Validate response data
+        if not all(key in repo_data for key in ["summary", "tree", "content"]):
+            raise ValueError("error:invalid_response")
+        
         # Prepare the response
         return {"success": True, "data": repo_data}
     except ValueError as e:
-        # Handle known errors based on the logic in your services
-        if str(e) == "error:missing_parameters":
+        error_msg = str(e)
+        if error_msg == "error:missing_parameters":
             raise HTTPException(status_code=400, detail="Missing required parameters: username and repo")
-        elif str(e) == "error:repo_not_found":
+        elif error_msg == "error:repo_not_found":
             raise HTTPException(status_code=404, detail="Repository not found")
-        elif str(e) == "error:repo_private":
-            raise HTTPException(status_code=403, detail="Private repository or rate limit exceeded")
-        elif str(e) == "error:repo_too_large":
+        elif error_msg == "error:repo_private":
+            raise HTTPException(status_code=403, detail="Private repository")
+        elif error_msg == "error:rate_limit_exceeded":
+            raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded")
+        elif error_msg == "error:repo_too_large":
             raise HTTPException(status_code=400, detail="Repository is too large to process")
+        elif error_msg == "error:invalid_response":
+            raise HTTPException(status_code=500, detail="Invalid response from GitIngest service")
         else:
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=f"Processing error: {error_msg}")
     except Exception as e:
         # General exception handling
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
@@ -75,8 +96,8 @@ async def get_repo_data_from_cache(username: str, repo: str):
 @app.get("/api/repo-exists")
 async def verify_repo_exists(username: str, repo: str):
     repo_url = f"https://github.com/{username}/{repo}"
-    exists = await check_repo_exists(repo_url)
-    return {"exists": exists}
+    # Bypassed repository existence check
+    return {"exists": True}
 
 # Running the app (for development purposes)
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ try:
     url = 'https://gitingest-service.onrender.com/api/analyze-repo'
     data = {
         'username': 'TharaneshA',
-        'repo': 'answergit'
+        'repo': 'SOFT'
     }
     
     print(f'Sending request to {url}')
