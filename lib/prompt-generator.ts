@@ -99,6 +99,8 @@ Your response should be helpful, accurate, and directly address the user's query
  * @param repo GitHub repository name
  * @returns Object containing tree and content data
  */
+import { RedisCacheManager } from './redis-cache-manager';
+
 interface GitIngestData {
   tree: string;
   content: string;
@@ -108,39 +110,23 @@ interface GitIngestData {
 
 export async function getRepoDataForPrompt(username: string, repo: string): Promise<GitIngestData> {
   try {
-    // Use the GitIngest service to get repository data
-    // This will either retrieve from cache or fetch using GitIngest
+    // First try to get data from Redis cache
+    const cachedData = await RedisCacheManager.getFromCache(username, repo);
+    if (cachedData) {
+      logger.info(`[GitIngest] Retrieved data from Redis cache for ${username}/${repo}`, { prefix: 'GitIngest' });
+      return {
+        tree: cachedData.tree,
+        content: cachedData.content,
+        success: true
+      };
+    }
+
+    // If not in cache, use GitIngest to fetch fresh data
     logger.info(`Retrieving repository data for ${username}/${repo}`, { prefix: 'GitIngest' });
     
     return new Promise((resolve, reject) => {
       // Path to the Python bridge script
       const scriptPath = path.join(process.cwd(), 'lib', 'gitingest_bridge.py');
-      
-      // Check if cache file exists and is valid
-      const cachePath = path.join(process.cwd(), 'cache', `${username}_${repo}_gitingest.json`);
-      if (fs.existsSync(cachePath)) {
-        try {
-          const cacheStats = fs.statSync(cachePath);
-          const cacheAge = Date.now() - cacheStats.mtimeMs;
-          const cacheExpirationMs = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
-          
-          if (cacheAge < cacheExpirationMs) {
-            // Cache is valid, read from cache
-            const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-            const data: GitIngestData = {
-              tree: cacheData.tree,
-              content: cacheData.content,
-              success: true
-            };
-            logger.info(`[GitIngest] Retrieved data from cache - Tree size: ${data.tree.length}, Content size: ${data.content.length}`);
-            resolve(data);
-            return;
-          }
-        } catch (error) {
-          logger.error(`Error reading cache: ${error}`, { prefix: 'GitIngest' });
-          // Continue with fresh data fetch if cache read fails
-        }
-      }
       
       // Spawn Python process for fresh data
       const pythonProcess = spawn('python', [
@@ -162,7 +148,7 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
       });
       
       // Process has completed
-      pythonProcess.on('close', (code: number) => {
+      pythonProcess.on('close', async (code: number) => {
         if (code !== 0) {
           logger.error(`Process exited with code ${code}`, { prefix: 'GitIngest' });
           // Return placeholder data as fallback
@@ -182,6 +168,8 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
               content: result.data.content,
               success: true
             };
+            // Save successful GitIngest data to Redis cache
+            await RedisCacheManager.saveToCache(username, repo, data);
             logger.info(`[GitIngest] Retrieved fresh data - Tree size: ${data.tree.length}, Content size: ${data.content.length}`);
             resolve(data);
           } else {
