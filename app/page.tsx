@@ -163,7 +163,7 @@ export default function Home() {
               </div>
 
               <div className="pt-4 text-sm text-slate-500 dark:text-slate-400 animate-fade-in-up whitespace-nowrap overflow-x-auto px-2" style={{ animationDelay: '2s' }}>
-                Example: github.com/JohnDoe/billingproject → answersforgit.com/JohnDoe/billingproject
+                Example: github.com/TharaneshA/nlsql → answersforgit.vercel.app/TharaneshA/nlsql
               </div>
             </>
           )}
