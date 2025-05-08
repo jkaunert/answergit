@@ -48,6 +48,11 @@ async def ingest_github_link(ingest_request: IngestRequest) -> dict:
 
 
 
+#  ping endpoint here
+@app.get("/ping")
+async def ping():
+    return {"message": "pong"}
+
 # 🚀 Add this block to start the server (required for Render)
 if __name__ == "__main__":
     import uvicorn
