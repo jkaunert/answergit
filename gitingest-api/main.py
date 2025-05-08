@@ -3,6 +3,8 @@ import os
 from sys import prefix
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
 from pydantic import BaseModel
 import asyncio
 import httpx  # For making async HTTP requests
@@ -49,9 +51,9 @@ async def ingest_github_link(ingest_request: IngestRequest) -> dict:
 
 
 #  ping endpoint here
-@app.get("/ping")
+@app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
-    return {"message": "pong"}
+    return JSONResponse(content={"message": "pong"})
 
 # 🚀 Add this block to start the server (required for Render)
 if __name__ == "__main__":
