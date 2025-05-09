@@ -45,18 +45,19 @@ export async function POST(req: Request) {
     // Start context preparation
     logger.context.start();
 
+    // Prioritize user query by adding it to the beginning of the prompt
+    const userQueryPrompt = `USER QUERY: ${query}\n\n`;
+
     if (filePath && fetchOnlyCurrentFile) {
       // For specific file queries, fetch only that file's content
       const fileContent = await fetchFileContent(filePath, username, repo);
-      prompt = `You are a helpful assistant that can answer questions about the given code file.
+      prompt = `${userQueryPrompt}You are a helpful assistant that can answer questions about the given code file.
 
 FILE: ${filePath}
 
 ${fileContent}
 
-QUESTION: ${query}
-
-Provide a detailed, technical response that directly addresses the question about this specific file.`;
+Provide a detailed, technical response that directly addresses the user's query about this specific file.`;
       
       contextStats.files = 1;
       contextStats.totalChars = fileContent.length;
@@ -65,15 +66,18 @@ Provide a detailed, technical response that directly addresses the question abou
       logger.info(`Collecting repository data for ${repoKey} using GitIngest...`, { prefix: 'Query' });
       
       try {
-        // Trigger background content loading if needed
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/collect-repo-data`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, repo })
-          });
-        } catch (error) {
-          logger.error('Error triggering background content loading: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        // Skip background content loading if we have cached data
+        const hasCachedData = await RedisCacheManager.hasCache(username, repo);
+        if (!hasCachedData) {
+          try {
+            await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/collect-repo-data`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username, repo })
+            });
+          } catch (error) {
+            logger.error('Error triggering background content loading: ' + (error instanceof Error ? error.message : 'Unknown error'));
+          }
         }
         
         // Get repository data from GitIngest
@@ -136,9 +140,7 @@ Provide a detailed, technical response that directly addresses the question abou
 
 Repository: ${repoKey}
 
-Question: ${query}
-
-Provide an insightful, technical response that demonstrates your expertise about this repository.`;
+${userQueryPrompt}Provide an insightful, technical response that directly addresses the user's query about this repository.`;
           }
         }
       } catch (error) {
@@ -147,9 +149,7 @@ Provide an insightful, technical response that demonstrates your expertise about
 
 Repository: ${repoKey}
 
-Question: ${query}
-
-Provide an insightful, technical response that demonstrates your expertise about this repository.`;
+${userQueryPrompt}Provide an insightful, technical response that directly addresses the user's query about this repository.`;
       }
     }
 
