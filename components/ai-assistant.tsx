@@ -133,6 +133,9 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
     setIsLoading(true)
     setDisplayedContent("")
 
+    // Log the user's query
+    console.log('[Query]', userInput)
+
     try {
       const baseUrl =
         typeof window !== "undefined"
@@ -194,9 +197,21 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   return (
     <div className="flex flex-col h-full min-h-0 bg-zinc-900 border-l border-zinc-800">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-        <div className="flex items-center">
-          <Sparkles className="h-4 w-4 mr-2 text-emerald-400" />
-          <h2 className="font-medium text-sm">AI Assistant</h2>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center">
+            <Sparkles className="h-4 w-4 mr-2 text-emerald-400" />
+            <h2 className="font-medium text-sm">AI Assistant</h2>
+          </div>
+          {!starsLoading && !starsError && stars !== null && (
+            <a
+              href={`https://github.com/${username}/${repo}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-zinc-400 hover:text-emerald-400 transition-colors"
+            >
+              ⭐ {stars}
+            </a>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <a
