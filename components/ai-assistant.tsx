@@ -70,7 +70,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const { stars, loading: starsLoading, error: starsError } = useGithubStars(username, repo)
+  const { stars, loading: starsLoading, error: starsError } = useGithubStars("TharaneshA", "answergit")
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
