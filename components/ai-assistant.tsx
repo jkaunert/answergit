@@ -176,7 +176,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
           <h2 className="font-medium text-sm gap-2">AI Assistant</h2>
           {!starsLoading && !starsError && stars !== null && (
             <a
-            href={`https://github.com/${username}/${repo}`}
+            href={`https://github.com/TharaneshA/answergit`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1 text-xs text-zinc-400 hover:text-emerald-400 transition-colors"
