@@ -159,7 +159,9 @@ export default function FileExplorer({ repoData }: FileExplorerProps) {
             {username}
           </Link>
           <span className="text-zinc-300">/</span>
-          <span className="text-zinc-300">{repo}</span>
+          <Link href={`https://github.com/${username}/${repo}`} className="text-zinc-300 hover:text-emerald-300">
+            {repo}
+          </Link>
         </div>
         <div className="relative">
           <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-zinc-500" />
