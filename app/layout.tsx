@@ -4,7 +4,8 @@ import { Inter, JetBrains_Mono, Roboto_Mono, Roboto } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Analytics } from "@vercel/analytics/react"
-import { SpeedInsights } from "@vercel/speed-insights/next" // ✅ Import added
+import { SpeedInsights } from "@vercel/speed-insights/next"
+import Script from "next/script" // ✅ Import Script
 
 const roboto = Roboto({
   subsets: ["latin"],
@@ -36,11 +37,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning className="dark">
+      <head>
+        {/* ✅ Rybbit Tracking Script */}
+        <Script
+          src="https://app.rybbit.io/api/script.js"
+          data-site-id="283"
+          strategy="afterInteractive"
+        />
+      </head>
       <body className={`${roboto.variable} ${robotoMono.variable} ${jetbrainsMono.variable} font-sans`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           {children}
           <Analytics />
-          <SpeedInsights /> {/* ✅ Speed Insights added here */}
+          <SpeedInsights />
         </ThemeProvider>
       </body>
     </html>

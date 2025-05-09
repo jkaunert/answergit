@@ -23,21 +23,36 @@ export async function POST(req: NextRequest) {
 
         logger.info(`Starting data collection for repository: ${repoUrl} using GitIngest`, { prefix: 'GitIngest' });
 
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
         const response = await fetch(`${apiUrl}/ingest/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ github_link: repoUrl })  // Use the full URL
-        });
+            body: JSON.stringify({ github_link: repoUrl }),
+            signal: controller.signal
+        }).finally(() => clearTimeout(timeout));
 
         if (!response.ok) {
             const errorText = await response.text();
             let errorJson;
             try {
                 errorJson = JSON.parse(errorText);
+                throw new Error(errorJson.detail || `API request failed with status ${response.status}`);
             } catch (e) {
-                throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+                if (e instanceof SyntaxError) {
+                    // Handle malformed JSON response
+                    logger.error(`Malformed JSON response from GitIngest API: ${errorText}`, { prefix: 'GitIngest' });
+                    return NextResponse.json(
+                        {
+                            success: false,
+                            error: 'Invalid response from analysis service. Please try again later.'
+                        },
+                        { status: 500 }
+                    );
+                }
+                throw e;
             }
-            throw new Error(errorJson.detail || `API request failed with status ${response.status}`);
         }
 
         const result = await response.json();
