@@ -31,13 +31,11 @@ export class RedisCacheManager {
     return `repo_data:${username}:${repo}`;
   }
 
-  static async isDocumentProcessed(repoId: string): Promise<boolean> {
+  static async hasCache(username: string, repo: string): Promise<boolean> {
     try {
-      const [username, repo] = repoId.split('/');
-      if (!username || !repo) return false;
-
       const client = await this.getClient();
-      const exists = await client.exists(this.getCacheKey(username, repo));
+      const key = this.getCacheKey(username, repo);
+      const exists = await client.exists(key);
       return exists === 1;
     } catch (error) {
       logger.error(`Cache check error: ${error}`, { prefix: 'Cache' });
