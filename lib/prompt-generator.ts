@@ -124,6 +124,8 @@ interface GitIngestData {
   error?: string;
 }
 
+const MAX_CONTENT_LENGTH = 800000; // Limit content to ~800K chars to stay within token limits
+
 export async function getRepoDataForPrompt(username: string, repo: string): Promise<GitIngestData> {
   try {
     // First try to get data from Redis cache
@@ -132,7 +134,9 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
       logger.info(`[GitIngest] Retrieved data from Redis cache for ${username}/${repo}`, { prefix: 'GitIngest' });
       return {
         tree: cachedData.tree,
-        content: cachedData.content,
+        content: cachedData.content.length > MAX_CONTENT_LENGTH 
+          ? cachedData.content.slice(0, MAX_CONTENT_LENGTH) + '\n... Content truncated to stay within token limits ...'
+          : cachedData.content,
         success: true
       };
     }
@@ -179,9 +183,13 @@ export async function getRepoDataForPrompt(username: string, repo: string): Prom
         try {
           const result = JSON.parse(dataString);
           if (result.success) {
+            const content = result.data.content.length > MAX_CONTENT_LENGTH
+              ? result.data.content.slice(0, MAX_CONTENT_LENGTH) + '\n... Content truncated to stay within token limits ...'
+              : result.data.content;
+
             const data: GitIngestData = {
               tree: result.data.tree,
-              content: result.data.content,
+              content: content,
               success: true
             };
             // Save successful GitIngest data to Redis cache
