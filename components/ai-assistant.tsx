@@ -24,6 +24,7 @@ import ReactMarkdown from "react-markdown"
 
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { GitHubRateLimit } from "@/components/ui/github-rate-limit"
+import { useGithubStars } from "@/hooks/useGithubStars"
 
 interface AiAssistantProps {
   username: string
@@ -59,7 +60,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Hi! I'm your AI assistant for the ${username}/${repo} repository. Ask me anything about this codebase.`,
+      content: `Hi! I'm your AI assistant for the [${username}](https://github.com/${username})/[${repo}](https://github.com/${username}/${repo}) repository. Ask me anything about this codebase.`,
     },
   ])
   const [input, setInput] = useState("")
@@ -180,6 +181,16 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
 
   const handleQuickPrompt = (prompt: string) => setInput(prompt)
 
+  // Fetch GitHub stars for the repository
+  const { stars, loading: starsLoading, error: starsError } = useGithubStars("TharaneshA", "answergit")
+  
+  // Log any errors to help with debugging
+  useEffect(() => {
+    if (starsError) {
+      console.error("Error fetching GitHub stars:", starsError)
+    }
+  }, [starsError])
+
   return (
     <div className="flex flex-col h-full min-h-0 bg-zinc-900 border-l border-zinc-800">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
@@ -188,6 +199,26 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
           <h2 className="font-medium text-sm">AI Assistant</h2>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href="https://github.com/TharaneshA/answergit"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1 text-xs"
+          >
+            <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/>
+            </svg>
+            {starsLoading ? (
+              <span>Loading...</span>
+            ) : stars !== null ? (
+              <span className="flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="#FFD700">
+                  <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/>
+                </svg>
+                <span>{stars}</span>
+              </span>
+            ) : null}
+          </a>
           <GitHubRateLimit />
           <ThemeToggle />
         </div>
@@ -245,6 +276,34 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
                             <pre className="overflow-x-auto max-w-full" {...props}>
                               {children}
                             </pre>
+                          )
+                        },
+                        p({ node, children, ...props }) {
+                          return (
+                            <p className="mb-2" {...props}>
+                              {children}
+                            </p>
+                          )
+                        },
+                        ul({ node, children, ...props }) {
+                          return (
+                            <ul className="my-2 pl-6" {...props}>
+                              {children}
+                            </ul>
+                          )
+                        },
+                        ol({ node, children, ...props }) {
+                          return (
+                            <ol className="my-2 pl-6" {...props}>
+                              {children}
+                            </ol>
+                          )
+                        },
+                        li({ node, children, ...props }) {
+                          return (
+                            <li className="mb-1" {...props}>
+                              {children}
+                            </li>
                           )
                         },
                       }}
