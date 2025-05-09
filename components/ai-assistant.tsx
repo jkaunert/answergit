@@ -70,11 +70,7 @@ export default function AiAssistant({ username, repo }: AiAssistantProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-<<<<<<< Updated upstream
   const { stars, loading: starsLoading, error: starsError } = useGithubStars("TharaneshA", "answergit")
-=======
-  const { stars, loading: starsLoading, error: starsError } = useGithubStars(TharaneshA, answergit)
->>>>>>> Stashed changes
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
